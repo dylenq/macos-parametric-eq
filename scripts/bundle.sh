@@ -10,8 +10,9 @@ cargo build --release --target aarch64-apple-darwin --target x86_64-apple-darwin
 
 app=target/EQ.app
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp bundle/Info.plist "$app/Contents/Info.plist"
+cp bundle/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 lipo -create -output "$app/Contents/MacOS/eq" \
     target/aarch64-apple-darwin/release/eq \
     target/x86_64-apple-darwin/release/eq

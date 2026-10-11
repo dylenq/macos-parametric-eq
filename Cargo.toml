@@ -1,6 +1,6 @@
 [package]
 name = "eq"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "System-wide parametric equalizer for macOS"
 license = "GPL-3.0-only"
@@ -8,7 +8,9 @@ license = "GPL-3.0-only"
 [dependencies]
 dirs = "7.0.0"
 eframe = "0.36.2"
+muda = "0.21.2"
 objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSColor", "NSColorSpace", "objc2-core-foundation"] }
 objc2-core-audio = "0.3.2"
 objc2-core-audio-types = "0.3.2"
 objc2-core-foundation = "0.3.2"

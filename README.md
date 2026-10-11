@@ -1,5 +1,7 @@
 # EQ
 
+<img src="bundle/icon.png" width="128" alt="EQ app icon">
+
 A system-wide parametric equalizer for macOS. It equalizes everything your Mac plays
 (music apps, browsers, video calls) without installing an audio driver.
 
@@ -9,6 +11,8 @@ A system-wide parametric equalizer for macOS. It equalizes everything your Mac p
 - Peak, low/high shelf and low/high pass filters
 - Preamp, bypass for A/B comparison, and an output meter with a clip indicator
 - Follows the default output device when you switch speakers or headphones
+- Undo and redo for every edit, and a menu bar with shortcuts (⌘B bypass, ⌘N add band)
+- Light and dark appearance, using your system accent color
 
 Requires macOS 14.2 or later. Runs on Apple silicon and Intel.
 

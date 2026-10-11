@@ -29,10 +29,10 @@ impl FilterKind {
     pub fn label(self) -> &'static str {
         match self {
             FilterKind::Peak => "Peak",
-            FilterKind::LowShelf => "Low shelf",
-            FilterKind::HighShelf => "High shelf",
-            FilterKind::LowPass => "Low pass",
-            FilterKind::HighPass => "High pass",
+            FilterKind::LowShelf => "Low Shelf",
+            FilterKind::HighShelf => "High Shelf",
+            FilterKind::LowPass => "Low Pass",
+            FilterKind::HighPass => "High Pass",
         }
     }
 
@@ -94,6 +94,24 @@ impl Default for EqState {
 }
 
 impl EqState {
+    /// Appends a flat 1 kHz peak band and selects it, if there is room.
+    pub fn add_band(&mut self, selected: &mut Option<usize>) {
+        if self.bands.len() < MAX_BANDS {
+            let mut band = Band::new(FilterKind::Peak, 1_000.0);
+            band.q = 1.0;
+            self.bands.push(band);
+            *selected = Some(self.bands.len() - 1);
+        }
+    }
+
+    /// Restores the default flat bands and preamp. Bypass is left as it is.
+    pub fn reset_bands(&mut self) {
+        *self = EqState {
+            bypass: self.bypass,
+            ..EqState::default()
+        };
+    }
+
     fn path() -> Option<PathBuf> {
         Some(dirs::data_dir()?.join("eq").join("state.json"))
     }

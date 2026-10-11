@@ -56,6 +56,10 @@ pub struct Engine {
     pub sample_rate: f64,
 }
 
+// The callback pointer is only dereferenced by the IOProc and freed in `drop` after the
+// IOProc has stopped, so the handle can move between threads.
+unsafe impl Send for Engine {}
+
 impl Engine {
     /// Starts processing audio headed for `output_device`. `make_params` gets the sample
     /// rate the filters will run at.

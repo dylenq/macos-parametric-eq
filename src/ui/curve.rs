@@ -1,15 +1,18 @@
-use super::band_color;
+use super::format_freq;
+use super::theme::{self, CAPTION};
 use crate::dsp::response;
 use crate::state::{
     Band, EqState, FilterKind, MAX_BANDS, MAX_FREQ, MAX_GAIN_DB, MAX_Q, MIN_FREQ, MIN_Q,
 };
 use eframe::egui::{
-    Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, pos2, vec2,
+    Align2, Color32, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2, vec2,
 };
 
 /// Half the vertical span of the graph in dB, a little more than the gain limit.
 const DB_SPAN: f32 = MAX_GAIN_DB + 3.0;
-const NODE_RADIUS: f32 = 8.0;
+const NODE_RADIUS: f32 = 6.0;
+/// Pointer target around a node, above the 20 pt macOS minimum.
+const NODE_HIT: f32 = 24.0;
 const CURVE_POINTS: usize = 256;
 const GRID_FREQS: [(f32, &str); 10] = [
     (20.0, "20"),
@@ -56,74 +59,87 @@ impl Axes {
     }
 }
 
+/// A translucent fill between the curve and the 0 dB line.
+fn fill(points: &[Pos2], zero_y: f32, color: Color32) -> Shape {
+    let mut mesh = Mesh::default();
+    for point in points {
+        mesh.colored_vertex(*point, color);
+        mesh.colored_vertex(pos2(point.x, zero_y), color);
+    }
+    for i in 0..points.len().saturating_sub(1) as u32 {
+        let v = i * 2;
+        mesh.add_triangle(v, v + 1, v + 2);
+        mesh.add_triangle(v + 1, v + 2, v + 3);
+    }
+    Shape::mesh(mesh)
+}
+
 /// Draws the frequency response and handles dragging band nodes. Drag a node to set
 /// frequency and gain, scroll over it to change Q, right-click for filter type, and
 /// double-click empty space to add a band.
 pub fn show(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, sample_rate: f64) {
+    let p = &theme::palette(ui);
     let size = vec2(ui.available_width(), ui.available_height().max(160.0));
     let (outer, background) = ui.allocate_exact_size(size, Sense::click());
     let axes = Axes {
-        rect: Rect::from_min_max(outer.min + vec2(34.0, 8.0), outer.max - vec2(10.0, 20.0)),
+        rect: Rect::from_min_max(outer.min + vec2(30.0, 0.0), outer.max - vec2(0.0, 20.0)),
     };
-    let painter = ui.painter_at(outer);
-    let visuals = ui.visuals();
-    let grid = Stroke::new(1.0, visuals.weak_text_color().gamma_multiply(0.35));
-    let label_color = visuals.weak_text_color();
-    let font = FontId::proportional(10.0);
-    let accent = if state.bypass {
-        visuals.weak_text_color()
-    } else {
-        visuals.selection.stroke.color
-    };
+    let painter = ui.painter_at(outer.expand(8.0));
+    let hairline = Stroke::new(1.0, p.hairline);
+    let font = FontId::proportional(CAPTION);
+    let accent = if state.bypass { p.secondary } else { p.accent };
 
-    painter.rect_filled(axes.rect, 4.0, visuals.extreme_bg_color);
-    for (freq, label) in GRID_FREQS {
+    painter.rect_filled(axes.rect, 8.0, p.plot);
+    for (i, (freq, label)) in GRID_FREQS.into_iter().enumerate() {
         let x = axes.x(freq);
-        painter.vline(x, axes.rect.y_range(), grid);
-        painter.text(
-            pos2(x, axes.rect.bottom() + 4.0),
-            Align2::CENTER_TOP,
-            label,
-            font.clone(),
-            label_color,
-        );
+        let edge = i == 0 || i == GRID_FREQS.len() - 1;
+        if !edge {
+            painter.vline(x, axes.rect.y_range(), hairline);
+        }
+        let align = match i {
+            0 => Align2::LEFT_TOP,
+            _ if edge => Align2::RIGHT_TOP,
+            _ => Align2::CENTER_TOP,
+        };
+        painter.text(pos2(x, axes.rect.bottom() + 5.0), align, label, font.clone(), p.secondary);
     }
     for step in -4..=4 {
         let db = step as f32 * 6.0;
         let y = axes.y(db);
         let stroke = if step == 0 {
-            Stroke::new(1.0, visuals.weak_text_color())
+            Stroke::new(1.0, p.zero_line)
         } else {
-            grid
+            hairline
         };
         painter.hline(axes.rect.x_range(), y, stroke);
-        painter.text(
-            pos2(axes.rect.left() - 6.0, y),
-            Align2::RIGHT_CENTER,
-            format!("{db:+.0}"),
-            font.clone(),
-            label_color,
-        );
+        // Label every other line to keep the axis quiet.
+        if step % 2 == 0 {
+            painter.text(
+                pos2(axes.rect.left() - 8.0, y),
+                Align2::RIGHT_CENTER,
+                if step == 0 { "0".into() } else { format!("{db:+.0}") },
+                font.clone(),
+                p.secondary,
+            );
+        }
     }
-    painter.rect_stroke(axes.rect, 4.0, grid, StrokeKind::Inside);
 
     let plot = ui.painter_at(axes.rect);
     let xs: Vec<f32> = (0..CURVE_POINTS)
         .map(|i| axes.rect.left() + axes.rect.width() * i as f32 / (CURVE_POINTS - 1) as f32)
         .collect();
     let freqs: Vec<f32> = xs.iter().map(|&x| axes.freq(x)).collect();
-    let line = |dbs: Vec<f32>, stroke: Stroke| {
-        let points = xs.iter().zip(dbs).map(|(&x, db)| pos2(x, axes.y(db))).collect();
-        Shape::line(points, stroke)
+    let points = |dbs: Vec<f32>| -> Vec<Pos2> {
+        xs.iter().zip(dbs).map(|(&x, db)| pos2(x, axes.y(db))).collect()
     };
 
+    let total = points(response::total_db(state, &freqs, sample_rate));
+    plot.add(fill(&total, axes.y(0.0), accent.gamma_multiply(0.14)));
     if let Some(band) = selected.and_then(|i| state.bands.get(i)).filter(|b| b.enabled) {
         let dbs = freqs.iter().map(|&f| response::band_db(band, f, sample_rate)).collect();
-        let color = band_color(selected.unwrap()).gamma_multiply(0.6);
-        plot.add(line(dbs, Stroke::new(1.0, color)));
+        plot.add(Shape::line(points(dbs), Stroke::new(1.0, accent.gamma_multiply(0.55))));
     }
-    let total = response::total_db(state, &freqs, sample_rate);
-    plot.add(line(total, Stroke::new(2.0, accent)));
+    plot.add(Shape::line(total, Stroke::new(2.0, accent)));
 
     if background.double_clicked()
         && state.bands.len() < MAX_BANDS
@@ -141,8 +157,7 @@ pub fn show(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, samp
 
     let mut delete = None;
     for (index, band) in state.bands.iter_mut().enumerate() {
-        let center = axes.node(band);
-        let hit = Rect::from_center_size(center, vec2(NODE_RADIUS * 2.8, NODE_RADIUS * 2.8));
+        let hit = Rect::from_center_size(axes.node(band), vec2(NODE_HIT, NODE_HIT));
         let node = ui.interact(hit, ui.id().with(("eq-node", index)), Sense::click_and_drag());
 
         if node.clicked() || node.drag_started() {
@@ -173,41 +188,42 @@ pub fn show(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, samp
             if ui.checkbox(&mut band.enabled, "Enabled").clicked() {
                 ui.close();
             }
-            if ui.button("Delete band").clicked() {
+            if ui.button("Delete Band").clicked() {
                 delete = Some(index);
                 ui.close();
             }
         });
+        let gain = if band.kind.has_gain() {
+            format!("{:+.1} dB · ", band.gain_db)
+        } else {
+            String::new()
+        };
         let node = node.on_hover_text(format!(
-            "{} · {:.0} Hz · {:+.1} dB · Q {:.2}",
+            "{} · {} · {gain}Q {:.2}",
             band.kind.label(),
-            band.freq,
-            band.gain_db,
+            format_freq(band.freq),
             band.q
         ));
 
-        let color = band_color(index);
         let center = axes.node(band);
-        let active = *selected == Some(index) || node.hovered() || node.dragged();
-        if band.enabled && !state.bypass {
-            painter.circle_filled(center, NODE_RADIUS, color);
+        if *selected == Some(index) || node.hovered() || node.dragged() {
+            painter.circle_filled(center, NODE_RADIUS + 6.0, accent.gamma_multiply(0.25));
+        }
+        // A plot-colored ring keeps the node distinct from the curve it sits on.
+        painter.circle_filled(center, NODE_RADIUS + 2.0, p.plot);
+        if band.enabled {
+            painter.circle_filled(center, NODE_RADIUS, accent);
         } else {
-            painter.circle_filled(center, NODE_RADIUS, visuals.extreme_bg_color);
-            painter.circle_stroke(center, NODE_RADIUS, Stroke::new(1.5, color));
+            painter.circle_stroke(center, NODE_RADIUS - 0.75, Stroke::new(1.5, accent));
         }
-        if active {
-            painter.circle_stroke(center, NODE_RADIUS + 3.0, Stroke::new(1.5, color));
-        }
+        // The band number sits above the node, or below when there is no room.
+        let above = center.y - axes.rect.top() > 26.0;
         painter.text(
-            center,
-            Align2::CENTER_CENTER,
+            center + vec2(0.0, if above { -12.0 } else { 12.0 }),
+            if above { Align2::CENTER_BOTTOM } else { Align2::CENTER_TOP },
             (index + 1).to_string(),
-            FontId::proportional(10.0),
-            if band.enabled && !state.bypass {
-                Color32::BLACK
-            } else {
-                color
-            },
+            font.clone(),
+            if *selected == Some(index) { p.label } else { p.secondary },
         );
     }
     if let Some(index) = delete {

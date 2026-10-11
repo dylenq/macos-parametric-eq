@@ -1,6 +1,8 @@
 mod app;
 mod audio;
 mod dsp;
+mod history;
+mod menu;
 mod state;
 mod ui;
 
@@ -47,14 +49,20 @@ fn main() {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("EQ")
-            .with_inner_size([920.0, 620.0])
-            .with_min_inner_size([640.0, 420.0]),
+            .with_inner_size([860.0, 640.0])
+            .with_min_inner_size([640.0, 440.0])
+            // Content runs under a transparent title bar so the window reads as one surface.
+            .with_fullsize_content_view(true)
+            .with_titlebar_shown(false),
         ..Default::default()
     };
     if let Err(error) = eframe::run_native(
         "EQ",
         options,
-        Box::new(|_| Ok(Box::new(app::App::new()))),
+        Box::new(|cc| {
+            ui::theme::install(&cc.egui_ctx);
+            Ok(Box::new(app::App::new(&cc.egui_ctx)))
+        }),
     ) {
         eprintln!("error: {error}");
         std::process::exit(1);
