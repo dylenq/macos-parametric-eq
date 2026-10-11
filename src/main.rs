@@ -2,6 +2,7 @@ mod app;
 mod audio;
 mod dsp;
 mod history;
+mod import;
 mod menu;
 mod state;
 mod ui;

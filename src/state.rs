@@ -232,6 +232,12 @@ impl Settings {
         self.active_preset = Some(name.into());
     }
 
+    /// Loads a curve from elsewhere and keeps it as a preset.
+    pub fn import_preset(&mut self, name: &str, curve: &Curve) {
+        self.eq.set_curve(curve);
+        self.save_preset(name);
+    }
+
     /// Returns false if the name is empty or already used by another preset.
     pub fn rename_preset(&mut self, index: usize, name: &str) -> bool {
         let name = name.trim();

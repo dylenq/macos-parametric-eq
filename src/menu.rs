@@ -22,7 +22,7 @@ const PRESET_ID: &str = "preset:";
 
 impl Command {
     /// Every command with a fixed menu item. Presets get theirs as they are created.
-    const FIXED: [Command; 12] = [
+    const FIXED: [Command; 13] = [
         Command::Undo,
         Command::Redo,
         Command::ToggleBypass,
@@ -34,6 +34,7 @@ impl Command {
         Command::Preset(PresetAction::SaveAs),
         Command::Preset(PresetAction::Rename),
         Command::Preset(PresetAction::Delete),
+        Command::Preset(PresetAction::Import),
         Command::Quit,
     ];
 
@@ -51,6 +52,7 @@ impl Command {
             Command::Preset(PresetAction::SaveAs) => "save-preset-as".into(),
             Command::Preset(PresetAction::Rename) => "rename-preset".into(),
             Command::Preset(PresetAction::Delete) => "delete-preset".into(),
+            Command::Preset(PresetAction::Import) => "import-preset".into(),
             Command::Quit => "quit".into(),
         }
     }
@@ -142,6 +144,7 @@ impl AppMenu {
         );
         let rename_preset = item(Command::Preset(PresetAction::Rename), "Rename Preset…", None);
         let delete_preset = item(Command::Preset(PresetAction::Delete), "Delete Preset…", None);
+        let import_preset = item(Command::Preset(PresetAction::Import), "Import…", None);
         // A custom Quit so settings are saved and audio is restored before exiting.
         let quit = item(Command::Quit, "Quit EQ", command_key(Code::KeyQ));
 
@@ -177,7 +180,14 @@ impl AppMenu {
         let presets = Submenu::with_items(
             "Presets",
             true,
-            &[&save_preset, &save_preset_as, &rename_preset, &delete_preset],
+            &[
+                &save_preset,
+                &save_preset_as,
+                &rename_preset,
+                &delete_preset,
+                &separator(),
+                &import_preset,
+            ],
         )?;
         let window = Submenu::with_items(
             "Window",

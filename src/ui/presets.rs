@@ -12,6 +12,7 @@ pub enum PresetAction {
     SaveAs,
     Rename,
     Delete,
+    Import,
 }
 
 /// The preset menu in the top bar. Its title is the active preset, marked once edited.
@@ -50,6 +51,8 @@ pub fn picker(ui: &mut Ui, settings: &Settings) -> Option<PresetAction> {
             item(ui, true, "Save As…", PresetAction::SaveAs);
             item(ui, active.is_some(), "Rename…", PresetAction::Rename);
             item(ui, active.is_some(), "Delete…", PresetAction::Delete);
+            ui.separator();
+            item(ui, true, "Import…", PresetAction::Import);
         })
         .response
         .on_hover_text("Save this curve as a preset, or load one");

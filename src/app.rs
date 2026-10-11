@@ -2,12 +2,14 @@ use crate::audio::devices;
 use crate::audio::engine::Engine;
 use crate::dsp::chain::ChainParams;
 use crate::history::History;
+use crate::import;
 use crate::menu::{AppMenu, Command, MenuState};
 use crate::state::{MAX_BANDS, Settings};
 use crate::ui::controls::{self, Level};
 use crate::ui::presets::{Dialog, PresetAction};
 use crate::ui::{curve, theme};
 use eframe::egui::{self, CentralPanel, Frame, Margin, Panel, RichText};
+use std::path::Path;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -16,6 +18,7 @@ const ACCENT_POLL: Duration = Duration::from_secs(1);
 const SAVE_DELAY: Duration = Duration::from_secs(1);
 const CLIP_HOLD: Duration = Duration::from_secs(2);
 const SILENCE_HINT_AFTER: Duration = Duration::from_secs(8);
+const NOTICE_HOLD: Duration = Duration::from_secs(6);
 const DEFAULT_SAMPLE_RATE: f64 = 48_000.0;
 /// Meter fall rate in dB per second.
 const METER_DECAY: f32 = 40.0;
@@ -36,6 +39,8 @@ pub struct App {
     /// An engine start in progress on another thread.
     starting: Option<mpsc::Receiver<Result<Running, String>>>,
     error: Option<String>,
+    /// The outcome of an import, shown in place of the device for a few seconds.
+    notice: Option<(String, Instant)>,
     /// Parameters the audio thread has not accepted yet.
     unsent: bool,
     unsaved_since: Option<Instant>,
@@ -61,6 +66,7 @@ impl App {
             running: None,
             starting: None,
             error: None,
+            notice: None,
             unsent: false,
             unsaved_since: None,
             last_device_poll: None,
@@ -171,6 +177,11 @@ impl App {
     }
 
     fn status(&self) -> String {
+        if let Some((notice, shown)) = &self.notice
+            && shown.elapsed() < NOTICE_HOLD
+        {
+            return notice.clone();
+        }
         match (&self.running, &self.error) {
             (Some(r), _) => format!("{} · {:.1} kHz", r.device_name, r.engine.sample_rate / 1000.0),
             (None, Some(error)) => error.clone(),
@@ -208,7 +219,33 @@ impl App {
             PresetAction::SaveAs => self.dialog = Some(Dialog::save_as(&self.settings)),
             PresetAction::Rename => self.dialog = Dialog::rename(&self.settings),
             PresetAction::Delete => self.dialog = Dialog::delete(&self.settings),
+            PresetAction::Import => {
+                let file = rfd::FileDialog::new()
+                    .set_title("Import an AutoEq or Equalizer APO file")
+                    .add_filter("Equalizer APO", &["txt"])
+                    .pick_file();
+                if let Some(path) = file {
+                    self.import(&path);
+                }
+            }
         }
+    }
+
+    /// Loads an Equalizer APO file as a preset named after it.
+    fn import(&mut self, path: &Path) {
+        let notice = match import::read(path) {
+            Ok((name, imported)) => {
+                self.settings.import_preset(&name, &imported.curve);
+                self.selected = None;
+                match imported.skipped {
+                    0 => format!("Imported “{name}”"),
+                    1 => format!("Imported “{name}”, 1 filter skipped"),
+                    n => format!("Imported “{name}”, {n} filters skipped"),
+                }
+            }
+            Err(error) => error,
+        };
+        self.notice = Some((notice, Instant::now()));
     }
 
     fn save(&mut self) {
@@ -269,6 +306,11 @@ impl eframe::App for App {
                 }
                 Command::Undo | Command::Redo => {}
             }
+        }
+
+        let dropped = ui.input(|i| i.raw.dropped_files.clone());
+        for file in &dropped {
+            self.import(file.path());
         }
 
         let level = Level {
