@@ -47,6 +47,8 @@ pub fn top_bar(
 
         ui.add_space(16.0);
         ui.label(RichText::new("Preamp").color(p.secondary));
+        // Shorter than elsewhere, to leave the device name room.
+        ui.spacing_mut().slider_width = 120.0;
         ui.add(
             Slider::new(&mut state.preamp_db, -MAX_GAIN_DB..=MAX_GAIN_DB)
                 .suffix(" dB")

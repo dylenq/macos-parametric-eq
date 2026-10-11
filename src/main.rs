@@ -1,10 +1,13 @@
 mod app;
+mod appkit;
 mod audio;
 mod dsp;
 mod history;
 mod import;
+mod login;
 mod menu;
 mod state;
+mod tray;
 mod ui;
 
 use audio::devices;
@@ -47,14 +50,17 @@ fn main() {
         return;
     }
 
+    let settings = Settings::load();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("EQ")
-            .with_inner_size([860.0, 640.0])
+            .with_inner_size([920.0, 640.0])
             .with_min_inner_size([640.0, 440.0])
             // Content runs under a transparent title bar so the window reads as one surface.
             .with_fullsize_content_view(true)
-            .with_titlebar_shown(false),
+            .with_titlebar_shown(false)
+            // Closed to the menu bar last time, so it starts there.
+            .with_visible(!settings.window_hidden),
         ..Default::default()
     };
     if let Err(error) = eframe::run_native(
@@ -62,7 +68,7 @@ fn main() {
         options,
         Box::new(|cc| {
             ui::theme::install(&cc.egui_ctx);
-            Ok(Box::new(app::App::new(&cc.egui_ctx)))
+            Ok(Box::new(app::App::new(&cc.egui_ctx, settings)))
         }),
     ) {
         eprintln!("error: {error}");

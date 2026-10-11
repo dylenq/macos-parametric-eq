@@ -2,7 +2,7 @@ use super::theme;
 use crate::state::Settings;
 use eframe::egui::{Align, ComboBox, Context, Id, Key, Layout, Modal, RichText, TextEdit, Ui};
 
-const PICKER_WIDTH: f32 = 150.0;
+const PICKER_WIDTH: f32 = 140.0;
 
 /// Something the user asked to do with presets, from the picker or the menu bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,14 +1,16 @@
+use crate::appkit;
 use crate::audio::devices;
 use crate::audio::engine::Engine;
 use crate::dsp::chain::ChainParams;
 use crate::history::History;
 use crate::import;
+use crate::login;
 use crate::menu::{AppMenu, Command, MenuState};
 use crate::state::{MAX_BANDS, Settings};
 use crate::ui::controls::{self, Level};
 use crate::ui::presets::{Dialog, PresetAction};
 use crate::ui::{curve, theme};
-use eframe::egui::{self, CentralPanel, Frame, Margin, Panel, RichText};
+use eframe::egui::{self, CentralPanel, Frame, Margin, Panel, RichText, ViewportCommand};
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -55,12 +57,24 @@ pub struct App {
     history: History,
     /// Absent only if the menu bar could not be built.
     menu: Option<AppMenu>,
+    open_at_login: bool,
+    /// The window is closed and EQ is running from the menu bar.
+    hidden: bool,
+    /// Another app has been in front since the window was hidden, so EQ coming to the
+    /// foreground again means the user asked for it, from the Dock for instance.
+    left_foreground: bool,
+    quitting: bool,
 }
 
 impl App {
-    pub fn new(ctx: &egui::Context) -> Self {
+    pub fn new(ctx: &egui::Context, settings: Settings) -> Self {
         App {
-            settings: Settings::load(),
+            hidden: settings.window_hidden,
+            // Opening the app by hand puts it in front, which shows the window at once.
+            left_foreground: true,
+            quitting: false,
+            open_at_login: login::enabled(),
+            settings,
             selected: None,
             dialog: None,
             running: None,
@@ -248,27 +262,36 @@ impl App {
         self.notice = Some((notice, Instant::now()));
     }
 
-    fn save(&mut self) {
-        if self.unsaved_since.take().is_some()
-            && let Err(error) = self.settings.save()
-        {
-            eprintln!("could not save settings: {error}");
-        }
+    fn show_window(&mut self, ctx: &egui::Context) {
+        self.hidden = false;
+        self.settings.window_hidden = false;
+        self.mark_changed();
+        ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(ViewportCommand::Focus);
+        appkit::activate();
     }
-}
 
-impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let dt = self.last_frame.elapsed().as_secs_f32();
-        self.last_frame = Instant::now();
-        self.follow_output_device();
-        self.read_meters(dt);
-        if self.last_accent_poll.elapsed() >= ACCENT_POLL {
-            self.last_accent_poll = Instant::now();
-            theme::sync_accent(ui.ctx());
+    /// Closes the window but keeps equalizing, reachable from the menu bar and the Dock.
+    fn hide_window(&mut self, ctx: &egui::Context) {
+        self.hidden = true;
+        self.left_foreground = false;
+        self.settings.window_hidden = true;
+        self.mark_changed();
+        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+        appkit::hide();
+    }
+
+    fn toggle_login(&mut self) {
+        if let Err(error) = login::set_enabled(!self.open_at_login) {
+            self.notice = Some((format!("Could not change Open at Login: {error}"), Instant::now()));
         }
+        self.open_at_login = login::enabled();
+    }
 
-        let commands = self.menu.as_ref().map(AppMenu::take_commands).unwrap_or_default();
+    /// Runs what was chosen from the menus since the last call. A drag in the window can
+    /// span this call, and `gesture_active` keeps it from ending the drag's undo step.
+    fn run_commands(&mut self, ctx: &egui::Context, gesture_active: bool) {
+        let commands = self.menu.as_mut().map(AppMenu::take_commands).unwrap_or_default();
         // Undo and redo replace the state outright, so they are not themselves recorded.
         for command in &commands {
             let changed = match command {
@@ -299,15 +322,99 @@ impl eframe::App for App {
                     self.selected = None;
                 }
                 Command::TogglePerDevice => self.settings.per_device = !self.settings.per_device,
-                Command::Preset(action) => self.preset_action(action),
+                Command::Preset(action) => {
+                    // The sheets and the file panel need the window.
+                    if self.hidden && !matches!(action, PresetAction::Select(_)) {
+                        self.show_window(ctx);
+                    }
+                    self.preset_action(action);
+                }
+                Command::ShowWindow => self.show_window(ctx),
+                Command::ToggleLogin => self.toggle_login(),
                 Command::Quit => {
+                    self.quitting = true;
                     self.save();
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    ctx.send_viewport_cmd(ViewportCommand::Close);
                 }
                 Command::Undo | Command::Redo => {}
             }
         }
+        self.finish_edits(&before, gesture_active);
+    }
 
+    /// Call with the settings from before a round of edits, to save, send and record them.
+    fn finish_edits(&mut self, before: &Settings, gesture_active: bool) {
+        if self.settings != *before {
+            self.settings.eq.bands.iter_mut().for_each(|b| b.clamp());
+            self.mark_changed();
+        }
+        self.history.observe(&before.eq, &self.settings.eq, gesture_active);
+        self.push_changes();
+    }
+
+    fn sync_menu(&mut self) {
+        let Some(menu) = &mut self.menu else {
+            return;
+        };
+        // While a sheet is open, ⌘Z belongs to its text field.
+        let no_sheet = self.dialog.is_none();
+        menu.sync(MenuState {
+            can_undo: no_sheet && self.history.can_undo(),
+            can_redo: no_sheet && self.history.can_redo(),
+            bypass: self.settings.eq.bypass,
+            can_add: self.settings.eq.bands.len() < MAX_BANDS,
+            has_selection: self.selected.is_some(),
+            per_device: self.settings.per_device,
+            presets: self.settings.presets.iter().map(|p| p.name.clone()).collect(),
+            active_preset: self.settings.active_index(),
+            preset_modified: self.settings.is_modified(),
+            open_at_login: self.open_at_login,
+        });
+    }
+
+    fn save(&mut self) {
+        if self.unsaved_since.take().is_some()
+            && let Err(error) = self.settings.save()
+        {
+            eprintln!("could not save settings: {error}");
+        }
+    }
+}
+
+impl eframe::App for App {
+    /// Everything that has to keep going while the window is closed.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let dt = self.last_frame.elapsed().as_secs_f32();
+        self.last_frame = Instant::now();
+        self.follow_output_device();
+        self.read_meters(dt);
+
+        if self.hidden {
+            if !appkit::is_active() {
+                self.left_foreground = true;
+            } else if self.left_foreground {
+                self.show_window(ctx);
+            }
+        }
+        let pointer_down = !self.hidden && ctx.input(|i| i.pointer.any_down());
+        self.run_commands(ctx, pointer_down);
+        self.sync_menu();
+        // Keeps the meter moving and the device poll running while idle.
+        ctx.request_repaint_after(Duration::from_millis(50));
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.last_accent_poll.elapsed() >= ACCENT_POLL {
+            self.last_accent_poll = Instant::now();
+            theme::sync_accent(ui.ctx());
+        }
+        // Closing the window leaves EQ running in the menu bar; only Quit stops it.
+        if ui.input(|i| i.viewport().close_requested()) && !self.quitting {
+            ui.ctx().send_viewport_cmd(ViewportCommand::CancelClose);
+            self.hide_window(ui.ctx());
+        }
+
+        let before = self.settings.clone();
         let dropped = ui.input(|i| i.raw.dropped_files.clone());
         for file in &dropped {
             self.import(file.path());
@@ -366,30 +473,9 @@ impl eframe::App for App {
             self.dialog = None;
         }
 
-        if self.settings != before {
-            self.settings.eq.bands.iter_mut().for_each(|b| b.clamp());
-            self.mark_changed();
-        }
         let pointer_down = ui.input(|i| i.pointer.any_down());
-        self.history.observe(&before.eq, &self.settings.eq, pointer_down);
-        if let Some(menu) = &mut self.menu {
-            // While a sheet is open, ⌘Z belongs to its text field.
-            let no_sheet = self.dialog.is_none();
-            menu.sync(MenuState {
-                can_undo: no_sheet && self.history.can_undo(),
-                can_redo: no_sheet && self.history.can_redo(),
-                bypass: self.settings.eq.bypass,
-                can_add: self.settings.eq.bands.len() < MAX_BANDS,
-                has_selection: self.selected.is_some(),
-                per_device: self.settings.per_device,
-                presets: self.settings.presets.iter().map(|p| p.name.clone()).collect(),
-                active_preset: self.settings.active_index(),
-                preset_modified: self.settings.is_modified(),
-            });
-        }
-        self.push_changes();
-        // Keeps the meter moving and the device poll running while idle.
-        ui.ctx().request_repaint_after(Duration::from_millis(50));
+        self.finish_edits(&before, pointer_down);
+        self.sync_menu();
     }
 
     fn on_exit(&mut self) {

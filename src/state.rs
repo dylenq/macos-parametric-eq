@@ -181,6 +181,9 @@ pub struct Settings {
     current_device: Option<String>,
     #[serde(default)]
     devices: BTreeMap<String, DeviceEq>,
+    /// Whether the window was closed, leaving EQ in the menu bar, when it last ran.
+    #[serde(default)]
+    pub window_hidden: bool,
 }
 
 impl Default for Settings {
@@ -192,6 +195,7 @@ impl Default for Settings {
             per_device: true,
             current_device: None,
             devices: BTreeMap::new(),
+            window_hidden: false,
         }
     }
 }

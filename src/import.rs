@@ -146,6 +146,17 @@ Filter 4: ON HSC Fc 10000 Hz Gain -3.0 dB Q 0.70
     }
 
     #[test]
+    fn names_the_preset_after_the_file() {
+        let path = std::env::temp_dir().join("eq-test Sennheiser HD 650 ParametricEQ.txt");
+        std::fs::write(&path, AUTOEQ).unwrap();
+        let (name, imported) = read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(name, "eq-test Sennheiser HD 650");
+        assert_eq!(imported.curve.bands.len(), 4);
+        assert!(read(&path).is_err());
+    }
+
+    #[test]
     fn rejects_files_that_are_something_else() {
         assert!(parse("").is_err());
         assert!(parse("Dear diary: today I boosted the bass\n").is_err());

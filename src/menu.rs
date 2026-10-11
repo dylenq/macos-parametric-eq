@@ -1,3 +1,4 @@
+use crate::tray::Tray;
 use crate::ui::presets::PresetAction;
 use eframe::egui;
 use muda::accelerator::{Accelerator, Code, Modifiers};
@@ -14,6 +15,8 @@ pub enum Command {
     Reset,
     TogglePerDevice,
     Preset(PresetAction),
+    ShowWindow,
+    ToggleLogin,
     Quit,
 }
 
@@ -22,7 +25,7 @@ const PRESET_ID: &str = "preset:";
 
 impl Command {
     /// Every command with a fixed menu item. Presets get theirs as they are created.
-    const FIXED: [Command; 13] = [
+    const FIXED: [Command; 15] = [
         Command::Undo,
         Command::Redo,
         Command::ToggleBypass,
@@ -35,10 +38,12 @@ impl Command {
         Command::Preset(PresetAction::Rename),
         Command::Preset(PresetAction::Delete),
         Command::Preset(PresetAction::Import),
+        Command::ShowWindow,
+        Command::ToggleLogin,
         Command::Quit,
     ];
 
-    fn id(self) -> String {
+    pub fn id(self) -> String {
         match self {
             Command::Undo => "undo".into(),
             Command::Redo => "redo".into(),
@@ -53,6 +58,8 @@ impl Command {
             Command::Preset(PresetAction::Rename) => "rename-preset".into(),
             Command::Preset(PresetAction::Delete) => "delete-preset".into(),
             Command::Preset(PresetAction::Import) => "import-preset".into(),
+            Command::ShowWindow => "show".into(),
+            Command::ToggleLogin => "login".into(),
             Command::Quit => "quit".into(),
         }
     }
@@ -77,9 +84,48 @@ pub struct MenuState {
     pub presets: Vec<String>,
     pub active_preset: Option<usize>,
     pub preset_modified: bool,
+    pub open_at_login: bool,
 }
 
-/// The macOS menu bar, so every command in the window is also reachable from a menu.
+/// One checkable menu item per preset, followed by a separator if there are any.
+#[derive(Default)]
+pub struct PresetItems {
+    items: Vec<CheckMenuItem>,
+    separator: Option<PredefinedMenuItem>,
+}
+
+impl PresetItems {
+    /// Replaces the items, which start at `position` in `menu`.
+    pub fn list(&mut self, menu: &Submenu, position: usize, names: &[String]) {
+        // Menu edits only fail for items that are not in the menu, which these always are.
+        for item in self.items.drain(..) {
+            _ = menu.remove(&item);
+        }
+        if let Some(separator) = self.separator.take() {
+            _ = menu.remove(&separator);
+        }
+        for (index, name) in names.iter().enumerate() {
+            let id = Command::Preset(PresetAction::Select(index)).id();
+            let item = CheckMenuItem::with_id(id, name, true, false, None);
+            _ = menu.insert(&item, position + index);
+            self.items.push(item);
+        }
+        if !names.is_empty() {
+            let separator = PredefinedMenuItem::separator();
+            _ = menu.insert(&separator, position + names.len());
+            self.separator = Some(separator);
+        }
+    }
+
+    pub fn check(&self, active: Option<usize>) {
+        for (index, item) in self.items.iter().enumerate() {
+            item.set_checked(active == Some(index));
+        }
+    }
+}
+
+/// The macOS menu bar, so every command in the window is also reachable from a menu, and
+/// the menu bar item that stays when the window is closed.
 pub struct AppMenu {
     _menu: Menu,
     undo: MenuItem,
@@ -89,14 +135,17 @@ pub struct AppMenu {
     delete: MenuItem,
     per_device: CheckMenuItem,
     presets: Submenu,
-    /// One item per preset at the top of the Presets menu, then a separator if there are any.
-    preset_items: Vec<CheckMenuItem>,
-    preset_separator: PredefinedMenuItem,
+    preset_items: PresetItems,
+    open_at_login: CheckMenuItem,
+    /// Absent only if the menu bar item could not be created.
+    tray: Option<Tray>,
     save_preset: MenuItem,
     rename_preset: MenuItem,
     delete_preset: MenuItem,
     commands: mpsc::Receiver<Command>,
     shown: Option<MenuState>,
+    /// A chosen check item flips its own mark, which may no longer match `shown`.
+    stale: bool,
 }
 
 fn command_key(code: Code) -> Option<Accelerator> {
@@ -145,6 +194,8 @@ impl AppMenu {
         let rename_preset = item(Command::Preset(PresetAction::Rename), "Rename Preset…", None);
         let delete_preset = item(Command::Preset(PresetAction::Delete), "Delete Preset…", None);
         let import_preset = item(Command::Preset(PresetAction::Import), "Import…", None);
+        let open_at_login =
+            CheckMenuItem::with_id(Command::ToggleLogin.id(), "Open at Login", true, false, None);
         // A custom Quit so settings are saved and audio is restored before exiting.
         let quit = item(Command::Quit, "Quit EQ", command_key(Code::KeyQ));
 
@@ -154,6 +205,8 @@ impl AppMenu {
             true,
             &[
                 &PredefinedMenuItem::about(Some("About EQ"), None),
+                &separator(),
+                &open_at_login,
                 &separator(),
                 &PredefinedMenuItem::hide(Some("Hide EQ")),
                 &PredefinedMenuItem::hide_others(None),
@@ -222,27 +275,38 @@ impl AppMenu {
             delete,
             per_device,
             presets,
-            preset_items: Vec::new(),
-            preset_separator: separator(),
+            preset_items: PresetItems::default(),
+            open_at_login,
+            tray: Tray::install()
+                .inspect_err(|error| eprintln!("could not add the menu bar item: {error}"))
+                .ok(),
             save_preset,
             rename_preset,
             delete_preset,
             commands,
             shown: None,
+            stale: false,
         })
     }
 
     /// Commands chosen from the menu since the last call.
-    pub fn take_commands(&self) -> Vec<Command> {
-        self.commands.try_iter().collect()
+    pub fn take_commands(&mut self) -> Vec<Command> {
+        let commands: Vec<Command> = self.commands.try_iter().collect();
+        self.stale |= !commands.is_empty();
+        commands
     }
 
     pub fn sync(&mut self, state: MenuState) {
-        if self.shown.as_ref() == Some(&state) {
+        if self.shown.as_ref() == Some(&state) && !self.stale {
             return;
         }
-        if self.shown.as_ref().map(|s| &s.presets) != Some(&state.presets) {
-            self.list_presets(&state.presets);
+        self.stale = false;
+        let presets_changed = self.shown.as_ref().map(|s| &s.presets) != Some(&state.presets);
+        if presets_changed {
+            self.preset_items.list(&self.presets, 0, &state.presets);
+        }
+        if let Some(tray) = &mut self.tray {
+            tray.sync(&state, presets_changed);
         }
         self.undo.set_enabled(state.can_undo);
         self.redo.set_enabled(state.can_redo);
@@ -250,30 +314,11 @@ impl AppMenu {
         self.add.set_enabled(state.can_add);
         self.delete.set_enabled(state.has_selection);
         self.per_device.set_checked(state.per_device);
-        for (index, item) in self.preset_items.iter().enumerate() {
-            item.set_checked(state.active_preset == Some(index));
-        }
+        self.preset_items.check(state.active_preset);
+        self.open_at_login.set_checked(state.open_at_login);
         self.save_preset.set_enabled(state.preset_modified);
         self.rename_preset.set_enabled(state.active_preset.is_some());
         self.delete_preset.set_enabled(state.active_preset.is_some());
         self.shown = Some(state);
-    }
-
-    /// Replaces the preset items at the top of the Presets menu.
-    fn list_presets(&mut self, names: &[String]) {
-        // Menu edits only fail for items that are not in the menu, which these always are.
-        for item in self.preset_items.drain(..) {
-            _ = self.presets.remove(&item);
-        }
-        _ = self.presets.remove(&self.preset_separator);
-        for (index, name) in names.iter().enumerate() {
-            let id = Command::Preset(PresetAction::Select(index)).id();
-            let item = CheckMenuItem::with_id(id, name, true, false, None);
-            _ = self.presets.insert(&item, index);
-            self.preset_items.push(item);
-        }
-        if !names.is_empty() {
-            _ = self.presets.insert(&self.preset_separator, names.len());
-        }
     }
 }

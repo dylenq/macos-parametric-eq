@@ -35,6 +35,14 @@ output device and volume keys keep working as usual.
 - **Five filter types.** Peak, low shelf, high shelf, low pass and high pass.
 - **Interactive curve.** Drag a band to set frequency and gain, scroll to change Q,
   double-click to add a band, right-click to change its type.
+- **Presets.** Save curves by name and switch between them from the window, the menu bar
+  or the Presets menu.
+- **A curve for each output.** Speakers and headphones each remember their own EQ and get
+  it back when you switch to them. Turn this off under Equalizer to use one curve everywhere.
+- **AutoEq import.** Load a headphone correction from [AutoEq](https://autoeq.app), or any
+  Equalizer APO `ParametricEQ.txt` file, as a preset.
+- **Stays in the menu bar.** Close the window and the EQ keeps running. Switch presets or
+  bypass it from the menu bar item, and optionally open it at login.
 - **Preamp and clip indicator.** Lower the preamp when boosts push the output past
   full scale.
 - **Bypass.** Switch the EQ off and on (⌘B) to compare with the original sound.
@@ -54,7 +62,8 @@ output device and volume keys keep working as usual.
 4. Allow system audio capture when macOS asks. If you hear nothing, enable EQ under
    **System Settings > Privacy & Security > Screen & System Audio Recording**.
 
-Quitting the app restores normal audio immediately.
+Closing the window leaves EQ running in the menu bar. Quitting the app (⌘Q) restores
+normal audio immediately.
 
 ## Using it
 
@@ -67,6 +76,11 @@ Quitting the app restores normal audio immediately.
 | Type exact values | Use the band list under the curve |
 | Compare with the original sound | Toggle **Equalizer**, or press ⌘B |
 | Undo, redo | ⌘Z, ⇧⌘Z |
+| Save the curve as a preset | Choose **Save As…** from the preset menu, or press ⇧⌘S |
+| Update the current preset | ⌘S |
+| Import an AutoEq file | **Presets > Import…**, or drop the `.txt` file on the window |
+| Keep EQ running out of sight | Close the window; reopen it from the menu bar item or the Dock |
+| Start EQ when you log in | **EQ > Open at Login** |
 
 ## FAQ
 
@@ -86,10 +100,16 @@ developed on Apple silicon and the Intel half has not been tested yet.
 The app is not signed with an Apple Developer ID, so Gatekeeper asks you to confirm.
 The source is here if you would rather build it yourself.
 
+**How do I use an AutoEq headphone profile?**
+Find your headphones on [autoeq.app](https://autoeq.app), choose "EqualizerAPO
+ParametricEq" as the equalizer app, and download the file. Import it with
+**Presets > Import…**. Up to 16 filters are used; peak, shelf and pass filters are
+supported.
+
 **How do I uninstall it?**
-Quit the app and delete `EQ.app`. Settings live in
-`~/Library/Application Support/eq/state.json`. No drivers or background services are
-installed.
+Turn off **EQ > Open at Login** if you enabled it, quit the app and delete `EQ.app`.
+Settings live in `~/Library/Application Support/eq/state.json`. No drivers or background
+services are installed.
 
 ## How it works
 
@@ -116,7 +136,7 @@ Run the app from the bundle rather than with `cargo run`: macOS only grants audi
 capture to an app bundle. `./scripts/bundle.sh --zip` also writes `target/EQ.zip`.
 
 ```sh
-cargo test                                         # DSP and undo unit tests
+cargo test                                         # DSP, preset, import and undo unit tests
 target/EQ.app/Contents/MacOS/eq --headless 10      # no window, prints levels
 ```
 
