@@ -1054,7 +1054,7 @@ checksum = "773fa9c96dd0dbef887e39d0ed6177f141cce4d68e6041df77570aa3702dfa13"
 
 [[package]]
 name = "eq"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "dirs",
  "eframe",

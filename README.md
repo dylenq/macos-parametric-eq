@@ -43,8 +43,11 @@ output device and volume keys keep working as usual.
   Equalizer APO `ParametricEQ.txt` file, as a preset.
 - **Stays in the menu bar.** Close the window and the EQ keeps running. Switch presets or
   bypass it from the menu bar item, and optionally open it at login.
-- **Preamp and clip indicator.** Lower the preamp when boosts push the output past
-  full scale.
+- **Clip protection.** A limiter turns the output down for a moment when boosts would
+  push it past full scale, so it never distorts. On by default, with a checkbox under the
+  band list.
+- **Preamp and clip indicator.** With clip protection off, lower the preamp when boosts
+  push the output past full scale.
 - **Bypass.** Switch the EQ off and on (⌘B) to compare with the original sound.
 - **Undo and redo.** Every edit can be undone, including Reset.
 - **Follows your output.** Switching between speakers and headphones keeps the EQ running.
