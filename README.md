@@ -1,24 +1,53 @@
-# EQ
+<h1 align="center">
+  <img src="bundle/icon.png" width="96" alt="EQ app icon"><br>
+  EQ: system-wide parametric equalizer for macOS
+</h1>
 
-<img src="bundle/icon.png" width="128" alt="EQ app icon">
+<p align="center">
+  A free, open-source parametric EQ for every sound your Mac plays.<br>
+  No audio driver, no kernel extension, no account.
+</p>
 
-A system-wide parametric equalizer for macOS. It equalizes everything your Mac plays
-(music apps, browsers, video calls) without installing an audio driver.
+<p align="center">
+  <a href="https://github.com/dylenq/macos-parametric-eq/releases/latest"><b>Download for macOS</b></a>
+  · macOS 14.2 or later · Apple silicon and Intel
+</p>
 
-- Drag band nodes on the frequency-response curve to set frequency and gain
-- Scroll over a node to change Q, right-click it to change filter type or delete it
-- Double-click empty space to add a band (up to 16)
-- Peak, low/high shelf and low/high pass filters
-- Preamp, bypass for A/B comparison, and an output meter with a clip indicator
-- Follows the default output device when you switch speakers or headphones
-- Undo and redo for every edit, and a menu bar with shortcuts (⌘B bypass, ⌘N add band)
-- Light and dark appearance, using your system accent color
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+  <img src="docs/screenshot-light.png" alt="EQ, a system-wide parametric equalizer for macOS, showing a frequency response curve with five draggable bands, a preamp slider and a band list">
+</picture>
 
-Requires macOS 14.2 or later. Runs on Apple silicon and Intel.
+EQ applies a parametric equalizer to all system audio on macOS: music apps, browsers,
+games and calls, on speakers or headphones. Shape the sound by dragging points on a
+frequency-response curve, the way you would in a studio EQ plugin, and hear the change
+immediately.
+
+Unlike most Mac equalizers it does not install a virtual audio device. It uses the
+process tap API Apple added in macOS 14.2, so there is nothing to uninstall and your
+output device and volume keys keep working as usual.
+
+## Features
+
+- **System-wide.** One EQ for everything the Mac plays, with no per-app setup.
+- **Fully parametric.** Up to 16 bands, each with its own frequency (20 Hz to 20 kHz),
+  gain (±24 dB) and Q.
+- **Five filter types.** Peak, low shelf, high shelf, low pass and high pass.
+- **Interactive curve.** Drag a band to set frequency and gain, scroll to change Q,
+  double-click to add a band, right-click to change its type.
+- **Preamp and clip indicator.** Lower the preamp when boosts push the output past
+  full scale.
+- **Bypass.** Switch the EQ off and on (⌘B) to compare with the original sound.
+- **Undo and redo.** Every edit can be undone, including Reset.
+- **Follows your output.** Switching between speakers and headphones keeps the EQ running.
+- **Native feel.** Light and dark appearance, your system accent color, and a full menu bar.
+- **Private.** Audio is processed on your Mac and never leaves it. The app makes no
+  network connections.
 
 ## Install
 
-1. Download `EQ.zip` from the Releases page and unzip it.
+1. Download `EQ.zip` from the
+   [latest release](https://github.com/dylenq/macos-parametric-eq/releases/latest) and unzip it.
 2. Move `EQ.app` to Applications and open it.
 3. The app is not notarized by Apple, so macOS blocks the first launch. Open
    **System Settings > Privacy & Security**, scroll down, and click **Open Anyway**.
@@ -27,15 +56,51 @@ Requires macOS 14.2 or later. Runs on Apple silicon and Intel.
 
 Quitting the app restores normal audio immediately.
 
+## Using it
+
+| To do this | Do this |
+| --- | --- |
+| Move a band | Drag its point on the curve |
+| Change Q (bandwidth) | Scroll or pinch over the point |
+| Add a band | Double-click empty space on the curve, or press ⌘N |
+| Change filter type, disable or delete a band | Right-click the point |
+| Type exact values | Use the band list under the curve |
+| Compare with the original sound | Toggle **Equalizer**, or press ⌘B |
+| Undo, redo | ⌘Z, ⇧⌘Z |
+
+## FAQ
+
+**Do I need BlackHole, Soundflower or another virtual audio driver?**
+No. EQ captures system audio with a Core Audio process tap, which is built into macOS
+14.2 and later.
+
+**Why does macOS ask for permission to record audio?**
+Reading system audio is what lets the app equalize it, and macOS guards that behind the
+"System Audio Recording" permission. Nothing is recorded or saved.
+
+**Which Macs does it run on?**
+Any Mac on macOS 14.2 (Sonoma) or later. The download is a universal build; it is
+developed on Apple silicon and the Intel half has not been tested yet.
+
+**Why is there a warning the first time I open it?**
+The app is not signed with an Apple Developer ID, so Gatekeeper asks you to confirm.
+The source is here if you would rather build it yourself.
+
+**How do I uninstall it?**
+Quit the app and delete `EQ.app`. Settings live in
+`~/Library/Application Support/eq/state.json`. No drivers or background services are
+installed.
+
 ## How it works
 
 EQ creates a Core Audio process tap of all system audio except its own, muting the
 original at the hardware while it is being read. A private aggregate device pairs the tap
 with your real output device, and a single IOProc runs the audio through a cascade of
-biquad filters (RBJ cookbook designs) on its way to the speakers. Parameter changes are
-passed to the audio thread through a lock-free queue and smoothed to avoid clicks.
+biquad filters (RBJ Audio EQ Cookbook designs) on its way to the speakers. Parameter
+changes reach the audio thread through a lock-free queue and are smoothed to avoid clicks.
 
-Settings are saved to `~/Library/Application Support/eq/state.json`.
+It is written in Rust, with [egui](https://github.com/emilk/egui) for the interface and
+[objc2](https://github.com/madsmtm/objc2) for Core Audio.
 
 ## Build from source
 
@@ -51,7 +116,7 @@ Run the app from the bundle rather than with `cargo run`: macOS only grants audi
 capture to an app bundle. `./scripts/bundle.sh --zip` also writes `target/EQ.zip`.
 
 ```sh
-cargo test                                         # DSP unit tests
+cargo test                                         # DSP and undo unit tests
 target/EQ.app/Contents/MacOS/eq --headless 10      # no window, prints levels
 ```
 

@@ -4,6 +4,10 @@ version = "0.2.0"
 edition = "2024"
 description = "System-wide parametric equalizer for macOS"
 license = "GPL-3.0-only"
+repository = "https://github.com/dylenq/macos-parametric-eq"
+readme = "README.md"
+keywords = ["equalizer", "parametric-eq", "macos", "audio", "core-audio"]
+categories = ["multimedia::audio"]
 
 [dependencies]
 dirs = "7.0.0"
