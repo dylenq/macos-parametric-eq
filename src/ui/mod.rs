@@ -1,5 +1,6 @@
 pub mod controls;
 pub mod curve;
+pub mod presets;
 pub mod theme;
 
 /// "80 Hz", "1.2 kHz".

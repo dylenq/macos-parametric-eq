@@ -3,8 +3,9 @@ use crate::audio::engine::Engine;
 use crate::dsp::chain::ChainParams;
 use crate::history::History;
 use crate::menu::{AppMenu, Command, MenuState};
-use crate::state::{EqState, MAX_BANDS};
+use crate::state::{MAX_BANDS, Settings};
 use crate::ui::controls::{self, Level};
+use crate::ui::presets::{Dialog, PresetAction};
 use crate::ui::{curve, theme};
 use eframe::egui::{self, CentralPanel, Frame, Margin, Panel, RichText};
 use std::sync::mpsc;
@@ -27,8 +28,10 @@ struct Running {
 }
 
 pub struct App {
-    state: EqState,
+    settings: Settings,
     selected: Option<usize>,
+    /// The preset sheet, while one is open.
+    dialog: Option<Dialog>,
     running: Option<Running>,
     /// An engine start in progress on another thread.
     starting: Option<mpsc::Receiver<Result<Running, String>>>,
@@ -52,8 +55,9 @@ pub struct App {
 impl App {
     pub fn new(ctx: &egui::Context) -> Self {
         App {
-            state: EqState::load(),
+            settings: Settings::load(),
             selected: None,
+            dialog: None,
             running: None,
             starting: None,
             error: None,
@@ -104,12 +108,21 @@ impl App {
             return;
         }
 
+        if let Some(uid) = devices::device_uid(device)
+            && self.settings.switch_device(&uid.to_string())
+        {
+            // Each device has its own curve, so undo does not reach across the switch.
+            self.history = History::default();
+            self.selected = None;
+            self.mark_changed();
+        }
+
         // The old tap must be gone before a new one mutes the system again.
         self.running = None;
         // Starting can block for as long as the system's audio capture prompt is open, so
         // it runs off the UI thread and the window stays responsive.
         let (sender, receiver) = mpsc::channel();
-        let state = self.state.clone();
+        let state = self.settings.eq.clone();
         std::thread::spawn(move || {
             let started = Engine::start(device, |rate| ChainParams::from_state(&state, rate))
                 .map(|engine| Running {
@@ -169,7 +182,7 @@ impl App {
         if self.unsent
             && let Some(running) = &mut self.running
         {
-            let params = ChainParams::from_state(&self.state, running.engine.sample_rate);
+            let params = ChainParams::from_state(&self.settings.eq, running.engine.sample_rate);
             self.unsent = !running.engine.send(params);
         }
         if self.unsaved_since.is_some_and(|t| t.elapsed() >= SAVE_DELAY) {
@@ -182,9 +195,25 @@ impl App {
         self.unsaved_since = Some(Instant::now());
     }
 
+    fn preset_action(&mut self, action: PresetAction) {
+        match action {
+            PresetAction::Select(index) => {
+                self.settings.apply_preset(index);
+                self.selected = None;
+            }
+            PresetAction::Save => match self.settings.active_preset.clone() {
+                Some(name) => self.settings.save_preset(&name),
+                None => self.dialog = Some(Dialog::save_as(&self.settings)),
+            },
+            PresetAction::SaveAs => self.dialog = Some(Dialog::save_as(&self.settings)),
+            PresetAction::Rename => self.dialog = Dialog::rename(&self.settings),
+            PresetAction::Delete => self.dialog = Dialog::delete(&self.settings),
+        }
+    }
+
     fn save(&mut self) {
         if self.unsaved_since.take().is_some()
-            && let Err(error) = self.state.save()
+            && let Err(error) = self.settings.save()
         {
             eprintln!("could not save settings: {error}");
         }
@@ -206,8 +235,8 @@ impl eframe::App for App {
         // Undo and redo replace the state outright, so they are not themselves recorded.
         for command in &commands {
             let changed = match command {
-                Command::Undo => self.history.undo(&mut self.state),
-                Command::Redo => self.history.redo(&mut self.state),
+                Command::Undo => self.history.undo(&mut self.settings.eq),
+                Command::Redo => self.history.redo(&mut self.settings.eq),
                 _ => false,
             };
             if changed {
@@ -216,22 +245,24 @@ impl eframe::App for App {
             }
         }
 
-        let before = self.state.clone();
+        let before = self.settings.clone();
         for command in commands {
             match command {
-                Command::ToggleBypass => self.state.bypass = !self.state.bypass,
-                Command::AddBand => self.state.add_band(&mut self.selected),
+                Command::ToggleBypass => self.settings.eq.bypass = !self.settings.eq.bypass,
+                Command::AddBand => self.settings.eq.add_band(&mut self.selected),
                 Command::DeleteBand => {
                     if let Some(index) = self.selected.take()
-                        && index < self.state.bands.len()
+                        && index < self.settings.eq.bands.len()
                     {
-                        self.state.bands.remove(index);
+                        self.settings.eq.bands.remove(index);
                     }
                 }
                 Command::Reset => {
-                    self.state.reset_bands();
+                    self.settings.eq.reset_bands();
                     self.selected = None;
                 }
+                Command::TogglePerDevice => self.settings.per_device = !self.settings.per_device,
+                Command::Preset(action) => self.preset_action(action),
                 Command::Quit => {
                     self.save();
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -249,6 +280,7 @@ impl eframe::App for App {
             && self.waiting_for_audio.is_some_and(|t| t.elapsed() > SILENCE_HINT_AFTER);
         let sample_rate = self.sample_rate();
 
+        let mut picked = None;
         let p = &theme::palette(ui);
         let panel = |margin: Margin| Frame::new().fill(p.window).inner_margin(margin);
         // The top margin clears the transparent title bar and its window buttons.
@@ -256,7 +288,7 @@ impl eframe::App for App {
             .frame(panel(Margin { left: 16, right: 16, top: 38, bottom: 10 }))
             .show_separator_line(false)
             .show(ui, |ui| {
-                controls::top_bar(ui, &mut self.state, &level, &status);
+                picked = controls::top_bar(ui, &mut self.settings, &level, &status);
                 if silent {
                     ui.label(
                         RichText::new(
@@ -275,27 +307,42 @@ impl eframe::App for App {
             .default_size(244.0)
             .min_size(96.0)
             .show(ui, |ui| {
-                controls::band_list(ui, &mut self.state, &mut self.selected);
+                controls::band_list(ui, &mut self.settings.eq, &mut self.selected);
             });
         CentralPanel::default()
             .frame(panel(Margin { left: 16, right: 16, top: 4, bottom: 4 }))
             .show(ui, |ui| {
-                curve::show(ui, &mut self.state, &mut self.selected, sample_rate);
+                curve::show(ui, &mut self.settings.eq, &mut self.selected, sample_rate);
             });
 
-        if self.state != before {
-            self.state.bands.iter_mut().for_each(|b| b.clamp());
+        if let Some(action) = picked {
+            self.preset_action(action);
+        }
+        if let Some(dialog) = &mut self.dialog
+            && !dialog.show(ui.ctx(), &mut self.settings)
+        {
+            self.dialog = None;
+        }
+
+        if self.settings != before {
+            self.settings.eq.bands.iter_mut().for_each(|b| b.clamp());
             self.mark_changed();
         }
         let pointer_down = ui.input(|i| i.pointer.any_down());
-        self.history.observe(&before, &self.state, pointer_down);
+        self.history.observe(&before.eq, &self.settings.eq, pointer_down);
         if let Some(menu) = &mut self.menu {
+            // While a sheet is open, ⌘Z belongs to its text field.
+            let no_sheet = self.dialog.is_none();
             menu.sync(MenuState {
-                can_undo: self.history.can_undo(),
-                can_redo: self.history.can_redo(),
-                bypass: self.state.bypass,
-                can_add: self.state.bands.len() < MAX_BANDS,
+                can_undo: no_sheet && self.history.can_undo(),
+                can_redo: no_sheet && self.history.can_redo(),
+                bypass: self.settings.eq.bypass,
+                can_add: self.settings.eq.bands.len() < MAX_BANDS,
                 has_selection: self.selected.is_some(),
+                per_device: self.settings.per_device,
+                presets: self.settings.presets.iter().map(|p| p.name.clone()).collect(),
+                active_preset: self.settings.active_index(),
+                preset_modified: self.settings.is_modified(),
             });
         }
         self.push_changes();

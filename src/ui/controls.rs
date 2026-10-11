@@ -1,6 +1,7 @@
+use super::presets::{self, PresetAction};
 use super::theme::{self, Palette};
 use crate::state::{
-    Band, EqState, FilterKind, MAX_BANDS, MAX_FREQ, MAX_GAIN_DB, MAX_Q, MIN_FREQ, MIN_Q,
+    Band, EqState, FilterKind, Settings, MAX_BANDS, MAX_FREQ, MAX_GAIN_DB, MAX_Q, MIN_FREQ, MIN_Q,
 };
 use eframe::egui::{
     Align, Button, Checkbox, Color32, ComboBox, DragValue, Frame, Label, Layout, Margin, Response,
@@ -12,6 +13,9 @@ const ROW_HEIGHT: f32 = 22.0;
 const NUMBER_WIDTH: f32 = 18.0;
 const TYPE_WIDTH: f32 = 116.0;
 const VALUE_WIDTH: f32 = 84.0;
+const METER_WIDTH: f32 = 96.0;
+/// Room kept for the "Clipping" label so the status text does not jump when it appears.
+const CLIPPING_WIDTH: f32 = 52.0;
 
 /// Output level in dB and whether the signal recently exceeded full scale.
 pub struct Level {
@@ -19,10 +23,18 @@ pub struct Level {
     pub clipped: bool,
 }
 
-/// Equalizer switch, preamp, and on the trailing side the output level and device.
-pub fn top_bar(ui: &mut Ui, state: &mut EqState, level: &Level, status: &str) {
+/// Equalizer switch, preamp and presets, and on the trailing side the output level and
+/// device.
+pub fn top_bar(
+    ui: &mut Ui,
+    settings: &mut Settings,
+    level: &Level,
+    status: &str,
+) -> Option<PresetAction> {
     let p = &theme::palette(ui);
+    let mut action = None;
     ui.horizontal(|ui| {
+        let state = &mut settings.eq;
         let mut on = !state.bypass;
         let toggled = switch(ui, &mut on, p)
             .on_hover_text("Turn off to compare with the unprocessed sound")
@@ -42,8 +54,17 @@ pub fn top_bar(ui: &mut Ui, state: &mut EqState, level: &Level, status: &str) {
         )
         .on_hover_text("Lower this if boosts make the output clip");
 
+        ui.add_space(8.0);
+        action = presets::picker(ui, settings);
+
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(RichText::new(status).color(p.secondary));
+            // The device name gives way first when the window is narrow.
+            let reserved = METER_WIDTH + CLIPPING_WIDTH + 32.0;
+            ui.scope(|ui| {
+                ui.set_max_width((ui.available_width() - reserved).max(0.0));
+                ui.add(Label::new(RichText::new(status).color(p.secondary)).truncate())
+                    .on_hover_text(status);
+            });
             ui.add_space(8.0);
             meter(ui, level, p);
             if level.clipped {
@@ -52,6 +73,7 @@ pub fn top_bar(ui: &mut Ui, state: &mut EqState, level: &Level, status: &str) {
             }
         });
     });
+    action
 }
 
 /// A compact on/off switch in the system style.
@@ -77,7 +99,7 @@ fn switch(ui: &mut Ui, on: &mut bool, p: &Palette) -> Response {
 
 fn meter(ui: &mut Ui, level: &Level, p: &Palette) {
     const FLOOR_DB: f32 = -60.0;
-    let (rect, response) = ui.allocate_exact_size(vec2(96.0, 4.0), Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(vec2(METER_WIDTH, 4.0), Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, 2.0, p.control);
     let fraction = ((level.output_db - FLOOR_DB) / -FLOOR_DB).clamp(0.0, 1.0);

@@ -10,12 +10,12 @@ use audio::devices;
 use eframe::egui;
 use audio::engine::Engine;
 use dsp::chain::ChainParams;
-use state::EqState;
+use state::Settings;
 use std::time::Duration;
 
 /// Runs the engine without a window and prints levels once a second: `eq --headless [seconds]`.
 fn headless(seconds: u64) -> Result<(), String> {
-    let state = EqState::load();
+    let state = Settings::load().eq;
     let device = devices::default_output_device().ok_or("no default output device")?;
     let engine = Engine::start(device, |rate| ChainParams::from_state(&state, rate))?;
     println!(
