@@ -176,6 +176,10 @@ pub fn band_list(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>)
                     state.reset_bands();
                     *selected = None;
                 }
+                ui.add_space(8.0);
+                ui.checkbox(&mut state.clip_protection, "Clip Protection").on_hover_text(
+                    "Turns the output down for a moment when boosts would make it clip",
+                );
             });
         });
     });

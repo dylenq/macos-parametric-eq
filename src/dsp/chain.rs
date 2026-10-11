@@ -5,6 +5,10 @@ use crate::state::{EqState, MAX_BANDS};
 const CONTROL_INTERVAL: u32 = 32;
 /// Smoothing time constant for coefficients, preamp and bypass.
 const SMOOTH_SECONDS: f64 = 0.010;
+/// The limiter keeps peaks at or under this, 0.1 dB below full scale.
+const LIMIT_CEILING: f64 = 0.988_553;
+/// How quickly the limiter lets go once the signal drops back under the ceiling.
+const LIMIT_RELEASE_SECONDS: f64 = 0.100;
 
 /// Everything the audio thread needs, precomputed on the UI thread.
 #[derive(Clone, Copy, Debug)]
@@ -13,6 +17,8 @@ pub struct ChainParams {
     /// Linear preamp gain.
     pub preamp: f64,
     pub bypass: bool,
+    /// Turn the output down for as long as it would otherwise exceed full scale.
+    pub limit: bool,
 }
 
 impl ChainParams {
@@ -25,6 +31,7 @@ impl ChainParams {
             coeffs,
             preamp: 10f64.powf(state.preamp_db as f64 / 20.0),
             bypass: state.bypass,
+            limit: state.clip_protection,
         }
     }
 }
@@ -40,6 +47,10 @@ pub struct Chain {
     /// 1.0 = fully processed, 0.0 = bypassed.
     wet: f64,
     wet_target: f64,
+    limit: bool,
+    /// Gain the limiter is applying, 1.0 when it is idle.
+    limit_gain: f64,
+    k_release: f64,
     settled: bool,
     countdown: u32,
     k_control: f64,
@@ -57,6 +68,9 @@ impl Chain {
             preamp_target: params.preamp,
             wet,
             wet_target: wet,
+            limit: params.limit,
+            limit_gain: 1.0,
+            k_release: 1.0 - (-1.0 / (LIMIT_RELEASE_SECONDS * sample_rate)).exp(),
             settled: true,
             countdown: 0,
             k_control: 1.0 - (-(CONTROL_INTERVAL as f64) / (SMOOTH_SECONDS * sample_rate)).exp(),
@@ -68,6 +82,7 @@ impl Chain {
         self.target = params.coeffs;
         self.preamp_target = params.preamp;
         self.wet_target = if params.bypass { 0.0 } else { 1.0 };
+        self.limit = params.limit;
         self.settled = false;
     }
 
@@ -76,16 +91,38 @@ impl Chain {
         if !self.settled {
             self.smooth();
         }
-        let mut out = [0f32; 2];
+        let mut out = [0f64; 2];
         for ch in 0..2 {
             let dry = input[ch] as f64;
             let mut x = dry * self.preamp;
             for (state, coeffs) in self.state[ch].iter_mut().zip(&self.current) {
                 x = state.tick(coeffs, x);
             }
-            out[ch] = (dry + self.wet * (x - dry)) as f32;
+            out[ch] = dry + self.wet * (x - dry);
         }
-        out
+        if self.limit || self.limit_gain < 1.0 {
+            self.limit(&mut out);
+        }
+        [out[0] as f32, out[1] as f32]
+    }
+
+    /// Turns both channels down together the instant a peak would pass the ceiling, then
+    /// eases back. Leaves samples untouched while idle, so quiet audio passes bit for bit.
+    #[inline]
+    fn limit(&mut self, out: &mut [f64; 2]) {
+        let peak = out[0].abs().max(out[1].abs());
+        if self.limit && peak * self.limit_gain > LIMIT_CEILING {
+            self.limit_gain = LIMIT_CEILING / peak;
+        } else if self.limit_gain < 1.0 {
+            self.limit_gain += (1.0 - self.limit_gain) * self.k_release;
+            if self.limit_gain > 1.0 - 1e-6 {
+                self.limit_gain = 1.0;
+            }
+        }
+        if self.limit_gain < 1.0 {
+            out[0] *= self.limit_gain;
+            out[1] *= self.limit_gain;
+        }
     }
 
     fn smooth(&mut self) {
@@ -145,9 +182,27 @@ mod tests {
         band.q = 1.0;
         EqState {
             bands: vec![band],
-            preamp_db: 0.0,
-            bypass: false,
+            clip_protection: false,
+            ..EqState::default()
         }
+    }
+
+    #[test]
+    fn clip_protection_holds_peaks_under_full_scale() {
+        // +24 dB on a 0.25 sine would peak near 4.0.
+        let mut state = state_with_peak(24.0);
+        let mut chain = Chain::new(FS, &ChainParams::from_state(&state, FS));
+        assert!(steady_peak(&mut chain, 1_000.0, 48_000, 48_000) > 3.0);
+
+        state.clip_protection = true;
+        let mut chain = Chain::new(FS, &ChainParams::from_state(&state, FS));
+        let peak = steady_peak(&mut chain, 1_000.0, 48_000, 48_000);
+        assert!(peak < 1.0 && peak > 0.9, "{peak}");
+
+        // Once the boost is gone the limiter lets go completely.
+        chain.set_params(&ChainParams::from_state(&EqState::default(), FS));
+        steady_peak(&mut chain, 1_000.0, 96_000, 1);
+        assert_eq!(chain.tick([0.25, -0.25]), [0.25, -0.25]);
     }
 
     #[test]

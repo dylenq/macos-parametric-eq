@@ -2,8 +2,8 @@ use crate::state::EqState;
 
 const LIMIT: usize = 100;
 
-/// Undo history for band and preamp edits. Bypass is a way of listening, not an edit, so
-/// it is never recorded or restored.
+/// Undo history for band and preamp edits. Bypass and clip protection are ways of
+/// listening, not edits, so they are never recorded or restored.
 #[derive(Default)]
 pub struct History {
     undo: Vec<EqState>,
@@ -17,9 +17,10 @@ fn edited(a: &EqState, b: &EqState) -> bool {
 }
 
 fn restore(state: &mut EqState, saved: EqState) {
-    let bypass = state.bypass;
+    let (bypass, clip_protection) = (state.bypass, state.clip_protection);
     *state = saved;
     state.bypass = bypass;
+    state.clip_protection = clip_protection;
 }
 
 impl History {

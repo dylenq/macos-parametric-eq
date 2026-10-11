@@ -75,6 +75,9 @@ pub struct EqState {
     pub bands: Vec<Band>,
     pub preamp_db: f32,
     pub bypass: bool,
+    /// Whether a limiter holds the output under full scale instead of letting it clip.
+    #[serde(default = "enabled")]
+    pub clip_protection: bool,
 }
 
 impl Default for EqState {
@@ -90,6 +93,7 @@ impl Default for EqState {
             bands,
             preamp_db: 0.0,
             bypass: false,
+            clip_protection: true,
         }
     }
 }
@@ -105,10 +109,11 @@ impl EqState {
         }
     }
 
-    /// Restores the default flat bands and preamp. Bypass is left as it is.
+    /// Restores the default flat bands and preamp. The switches are left as they are.
     pub fn reset_bands(&mut self) {
         *self = EqState {
             bypass: self.bypass,
+            clip_protection: self.clip_protection,
             ..EqState::default()
         };
     }

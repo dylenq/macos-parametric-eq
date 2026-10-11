@@ -42,7 +42,7 @@ mod tests {
         let state = EqState {
             bands: vec![a, b, off],
             preamp_db: 3.0,
-            bypass: false,
+            ..EqState::default()
         };
         let db = total_db(&state, &[1_000.0], 48_000.0)[0];
         assert!((db - 2.5).abs() < 1e-4, "{db}");
