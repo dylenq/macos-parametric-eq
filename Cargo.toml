@@ -1,0 +1,18 @@
+[package]
+name = "eq"
+version = "0.1.0"
+edition = "2024"
+description = "System-wide parametric equalizer for macOS"
+license = "GPL-3.0-only"
+
+[dependencies]
+dirs = "7.0.0"
+eframe = "0.36.2"
+objc2 = "0.6.5"
+objc2-core-audio = "0.3.2"
+objc2-core-audio-types = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-foundation = "0.3.2"
+rtrb = "0.4.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.152"
