@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/dylenq/macos-parametric-eq/releases/latest"><b>Download for macOS</b></a>
+  · <a href="https://dylenq.github.io/macos-parametric-eq/">Website</a>
   · macOS 14.2 or later · Apple silicon and Intel
 </p>
 
