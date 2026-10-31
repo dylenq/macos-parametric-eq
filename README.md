@@ -34,10 +34,18 @@ output device and volume keys keep working as usual.
 - **Fully parametric.** Up to 16 bands, each with its own frequency (20 Hz to 20 kHz),
   gain (±24 dB) and Q.
 - **Five filter types.** Peak, low shelf, high shelf, low pass and high pass.
+- **Graphic mode too.** Switch to 5, 10, 15 or 31 sliders at the standard ISO
+  frequencies, ±12 dB each. The curve passes smoothly through every slider, and changing
+  the number of sliders keeps its shape. Each mode keeps its own settings.
 - **Interactive curve.** Drag a band to set frequency and gain, scroll to change Q,
-  double-click to add a band, right-click to change its type.
-- **Presets.** Save curves by name and switch between them from the window, the menu bar
-  or the Presets menu.
+  double-click to add a band, right-click to change its type or invert its gain. Values
+  snap to round numbers as you drag, and the arrow keys nudge the selected band.
+- **Bass, treble and balance.** Shelves at 100 Hz and 10 kHz (±12 dB) and a left/right
+  balance that turns the other side down, in both modes.
+- **Presets.** Four built-in presets (Flat, Bass, Treble and Vocal), and your own saved by
+  name. A preset keeps the whole sound: mode, bands or sliders, preamp, bass, treble and
+  balance. Switch from the window, the menu bar or the Presets menu, and right-click one of
+  your presets to rename or delete it. Applying a preset can be undone.
 - **A curve for each output.** Speakers and headphones each remember their own EQ and get
   it back when you switch to them. Turn this off under Equalizer to use one curve everywhere.
 - **AutoEq import.** Load a headphone correction from [AutoEq](https://autoeq.app), or any
@@ -47,10 +55,12 @@ output device and volume keys keep working as usual.
 - **Clip protection.** A limiter turns the output down for a moment when boosts would
   push it past full scale, so it never distorts. On by default, with a checkbox under the
   band list.
-- **Preamp and clip indicator.** With clip protection off, lower the preamp when boosts
-  push the output past full scale.
+- **Headroom and a suggested preamp.** The top bar shows how far the loudest boost stays
+  under full scale, or how far over it goes, and offers the preamp that just fits. With
+  clip protection off, the part of the curve that would clip is drawn in red.
 - **Bypass.** Switch the EQ off and on (⌘B) to compare with the original sound.
-- **Undo and redo.** Every edit can be undone, including Reset.
+- **Undo and redo.** Every edit can be undone, including Reset, Remove All and applying a
+  preset, and messages about them offer Undo right there.
 - **Follows your output.** Switching between speakers and headphones keeps the EQ running.
 - **Native feel.** Light and dark appearance, your system accent color, and a full menu bar.
 - **Private.** Audio is processed on your Mac and never leaves it. The app makes no
@@ -77,7 +87,10 @@ normal audio immediately.
 | Change Q (bandwidth) | Scroll or pinch over the point |
 | Add a band | Double-click empty space on the curve, or press ⌘N |
 | Change filter type, disable or delete a band | Right-click the point |
-| Type exact values | Use the band list under the curve |
+| Type exact values | Use the band list under the curve; "1.5k" and "-3 dB" work too |
+| Nudge the selected band | ←/→ moves it a twelfth of an octave, ↑/↓ half a dB, ⌥↑/⌥↓ changes Q |
+| Switch between parametric and graphic | ⌘1, ⌘2, or the buttons above the bands |
+| Reset a slider, bass, treble, balance or the preamp | Double-click it |
 | Compare with the original sound | Toggle **Equalizer**, or press ⌘B |
 | Undo, redo | ⌘Z, ⇧⌘Z |
 | Save the curve as a preset | Choose **Save As…** from the preset menu, or press ⇧⌘S |
@@ -120,7 +133,9 @@ services are installed.
 EQ creates a Core Audio process tap of all system audio except its own, muting the
 original at the hardware while it is being read. A private aggregate device pairs the tap
 with your real output device, and a single IOProc runs the audio through a cascade of
-biquad filters (RBJ Audio EQ Cookbook designs) on its way to the speakers. Parameter
+biquad filters (RBJ Audio EQ Cookbook designs) on its way to the speakers. In graphic
+mode the sliders describe a smooth curve, and the gains of one peak filter per slider
+(plus a shelf beyond each end) are solved for together so that the filters follow it. Parameter
 changes reach the audio thread through a lock-free queue and are smoothed to avoid clicks.
 
 It is written in Rust, with [egui](https://github.com/emilk/egui) for the interface and
@@ -140,7 +155,7 @@ Run the app from the bundle rather than with `cargo run`: macOS only grants audi
 capture to an app bundle. `./scripts/bundle.sh --zip` also writes `target/EQ.zip`.
 
 ```sh
-cargo test                                         # DSP, preset, import and undo unit tests
+cargo test                                         # DSP, preset, import, undo and layout tests
 target/EQ.app/Contents/MacOS/eq --headless 10      # no window, prints levels
 ```
 
