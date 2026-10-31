@@ -8,8 +8,9 @@ use crate::state::{
     SLIDER_MAX_DB, Settings, snap_balance,
 };
 use eframe::egui::{
-    Align, Button, Checkbox, Color32, ComboBox, DragValue, Frame, Label, Layout, Margin, Response,
-    RichText, ScrollArea, Sense, Slider, Ui, WidgetInfo, WidgetType, pos2, vec2,
+    Align, Button, CentralPanel, Checkbox, Color32, ComboBox, DragValue, Frame, Label, Layout,
+    Margin, Panel, Response, RichText, ScrollArea, Sense, Slider, Ui, WidgetInfo, WidgetType, pos2,
+    vec2,
 };
 use std::cell::Cell;
 
@@ -21,8 +22,6 @@ const VALUE_WIDTH: f32 = 84.0;
 const METER_WIDTH: f32 = 96.0;
 /// Room kept for the "Clipping" label so the status text does not jump when it appears.
 const CLIPPING_WIDTH: f32 = 52.0;
-/// Height of the rows under the bands: buttons, then bass, treble and balance.
-const FOOTER_HEIGHT: f32 = 64.0;
 const TONE_SLIDER_WIDTH: f32 = 120.0;
 /// Over full scale by less than this still counts as fitting.
 const OVER_THRESHOLD_DB: f32 = 0.05;
@@ -219,24 +218,28 @@ pub fn editor(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, re
         });
     });
 
-    let content = (ui.available_height() - FOOTER_HEIGHT).max(60.0);
-    ui.allocate_ui(vec2(ui.available_width(), content), |ui| {
-        ui.set_min_height(content);
-        match state.mode {
-            Mode::Parametric => band_list(ui, state, selected, requests),
-            Mode::Graphic => {
-                Frame::new().inner_margin(Margin::symmetric(8, 0)).show(ui, |ui| {
-                    graphic::sliders(ui, &mut state.graphic);
-                });
-            }
+    // The buttons and tone controls take the height they need at the bottom, and the bands
+    // or sliders fill what is left. Sizing either by a guess would let the panel outgrow
+    // itself a little every frame.
+    Panel::bottom("editor-footer")
+        .frame(Frame::NONE)
+        .show_separator_line(false)
+        .resizable(false)
+        .show(ui, |ui| {
+            row_frame(Color32::TRANSPARENT).show(ui, |ui| {
+                ui.horizontal(|ui| buttons(ui, state, selected, requests));
+            });
+            row_frame(Color32::TRANSPARENT).show(ui, |ui| {
+                ui.horizontal(|ui| tone(ui, state));
+            });
+        });
+    CentralPanel::default().frame(Frame::NONE).show(ui, |ui| match state.mode {
+        Mode::Parametric => band_list(ui, state, selected, requests),
+        Mode::Graphic => {
+            Frame::new().inner_margin(Margin::symmetric(8, 0)).show(ui, |ui| {
+                graphic::sliders(ui, &mut state.graphic);
+            });
         }
-    });
-
-    row_frame(Color32::TRANSPARENT).show(ui, |ui| {
-        ui.horizontal(|ui| buttons(ui, state, selected, requests));
-    });
-    row_frame(Color32::TRANSPARENT).show(ui, |ui| {
-        ui.horizontal(|ui| tone(ui, state));
     });
 }
 

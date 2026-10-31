@@ -171,10 +171,14 @@ mod frame_tests {
     use crate::state::{Mode, Settings};
     use eframe::egui::{self, CentralPanel, Panel, RawInput, Rect, pos2, vec2};
 
-    /// Lays out the whole window for a few frames at a given size, as the app does.
-    fn frames(settings: &mut Settings, selected: &mut Option<usize>, size: egui::Vec2) {
+    /// Lays out the whole window for a few frames at a given size, as the app does, and
+    /// returns the height the curve was left with.
+    fn frames(settings: &mut Settings, selected: &mut Option<usize>, size: egui::Vec2) -> f32 {
         let ctx = egui::Context::default();
-        for frame in 0..3 {
+        // The app's own fonts and spacing, which decide how tall each row is.
+        super::theme::install(&ctx);
+        let mut curve_height = 0.0;
+        for frame in 0..60 {
             let input = RawInput {
                 screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), size)),
                 time: Some(frame as f64 / 60.0),
@@ -187,16 +191,21 @@ mod frame_tests {
                 Panel::top("top").show(ui, |ui| {
                     controls::top_bar(ui, settings, &level, &status, 48_000.0, &mut requests);
                 });
-                Panel::bottom("bands").default_size(300.0).show(ui, |ui| {
+                Panel::bottom("bands").resizable(true).default_size(300.0).min_size(200.0).show(ui, |ui| {
                     controls::editor(ui, &mut settings.eq, selected, &mut requests);
                 });
-                CentralPanel::default().show(ui, |ui| {
-                    curve::show(ui, &mut settings.eq, selected, 48_000.0, true, &mut requests);
-                });
+                curve_height = CentralPanel::default()
+                    .show(ui, |ui| {
+                        curve::show(ui, &mut settings.eq, selected, 48_000.0, true, &mut requests);
+                    })
+                    .response
+                    .rect
+                    .height();
             });
             // Nothing draws here, so the font atlas updates are dropped on purpose.
             output.textures_delta.clear();
         }
+        curve_height
     }
 
     #[test]
@@ -207,7 +216,10 @@ mod frame_tests {
             let mut selected = Some(2);
             settings.eq.bass_db = 6.0;
             settings.eq.clip_protection = false;
-            frames(&mut settings, &mut selected, size);
+            let curve = frames(&mut settings, &mut selected, size);
+            println!("{size:?}: curve {curve}");
+            // The bands must leave the curve most of the window.
+            assert!(curve >= size.y * 0.3, "{size:?}: curve squeezed to {curve}");
 
             settings.eq.bands.clear();
             frames(&mut settings, &mut selected, size);
@@ -216,7 +228,9 @@ mod frame_tests {
             for count in [5, 10, 15, 31] {
                 settings.eq.graphic.set_band_count(count);
                 settings.eq.graphic.gains_db.fill(12.0);
-                frames(&mut settings, &mut None, size);
+                let curve = frames(&mut settings, &mut None, size);
+                println!("{size:?} graphic {count}: curve {curve}");
+                assert!(curve >= size.y * 0.3, "{size:?}: curve squeezed to {curve}");
             }
             settings.eq.bypass = true;
             frames(&mut settings, &mut None, size);
