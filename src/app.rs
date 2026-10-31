@@ -6,10 +6,10 @@ use crate::history::History;
 use crate::import;
 use crate::login;
 use crate::menu::{AppMenu, Command, MenuState};
-use crate::state::{MAX_BANDS, Settings};
-use crate::ui::controls::{self, Level};
-use crate::ui::presets::{Dialog, PresetAction};
-use crate::ui::{curve, theme};
+use crate::state::{MAX_BANDS, Mode, Settings};
+use crate::ui::controls::{self, Level, Status};
+use crate::ui::presets::{self, Dialog, Outcome, PresetAction};
+use crate::ui::{Requests, curve, theme};
 use eframe::egui::{self, CentralPanel, Frame, Margin, Panel, RichText, ViewportCommand};
 use std::path::Path;
 use std::sync::mpsc;
@@ -22,8 +22,18 @@ const CLIP_HOLD: Duration = Duration::from_secs(2);
 const SILENCE_HINT_AFTER: Duration = Duration::from_secs(8);
 const NOTICE_HOLD: Duration = Duration::from_secs(6);
 const DEFAULT_SAMPLE_RATE: f64 = 48_000.0;
+/// Room the lower panel starts with: the mode, bands or sliders, buttons and tone controls.
+const EDITOR_HEIGHT: f32 = 300.0;
 /// Meter fall rate in dB per second.
 const METER_DECAY: f32 = 40.0;
+
+/// A message shown in place of the device for a few seconds.
+struct Notice {
+    text: String,
+    shown: Instant,
+    /// The history serial at which the message's Undo still undoes its edit.
+    undo: Option<u64>,
+}
 
 struct Running {
     engine: Engine,
@@ -41,8 +51,12 @@ pub struct App {
     /// An engine start in progress on another thread.
     starting: Option<mpsc::Receiver<Result<Running, String>>>,
     error: Option<String>,
-    /// The outcome of an import, shown in place of the device for a few seconds.
-    notice: Option<(String, Instant)>,
+    notice: Option<Notice>,
+    /// A message for an edit made this frame, waiting for the edit to become an undo step.
+    undoable: Option<String>,
+    /// The Undo next to a message was clicked. It runs with the menu commands, before the
+    /// next round of edits, so it is not itself recorded as an edit.
+    undo_requested: bool,
     /// Parameters the audio thread has not accepted yet.
     unsent: bool,
     unsaved_since: Option<Instant>,
@@ -81,6 +95,8 @@ impl App {
             starting: None,
             error: None,
             notice: None,
+            undoable: None,
+            undo_requested: false,
             unsent: false,
             unsaved_since: None,
             last_device_poll: None,
@@ -132,7 +148,8 @@ impl App {
             && self.settings.switch_device(&uid.to_string())
         {
             // Each device has its own curve, so undo does not reach across the switch.
-            self.history = History::default();
+            self.history.clear();
+            self.notice = None;
             self.selected = None;
             self.mark_changed();
         }
@@ -190,17 +207,33 @@ impl App {
         self.output_db = self.output_db.max(20.0 * output.max(1e-6).log10());
     }
 
-    fn status(&self) -> String {
-        if let Some((notice, shown)) = &self.notice
-            && shown.elapsed() < NOTICE_HOLD
+    fn status(&self) -> Status {
+        if let Some(notice) = &self.notice
+            && notice.shown.elapsed() < NOTICE_HOLD
         {
-            return notice.clone();
+            // Undo is offered only while nothing else has been done since.
+            let undo = notice.undo.is_some_and(|serial| {
+                serial == self.history.serial() && !self.history.has_pending()
+            });
+            return Status {
+                text: notice.text.clone(),
+                undo,
+            };
         }
-        match (&self.running, &self.error) {
+        let text = match (&self.running, &self.error) {
             (Some(r), _) => format!("{} · {:.1} kHz", r.device_name, r.engine.sample_rate / 1000.0),
             (None, Some(error)) => error.clone(),
             (None, None) => "Waiting for audio access…".into(),
-        }
+        };
+        Status { text, undo: false }
+    }
+
+    fn notify(&mut self, text: impl Into<String>) {
+        self.notice = Some(Notice {
+            text: text.into(),
+            shown: Instant::now(),
+            undo: None,
+        });
     }
 
     fn push_changes(&mut self) {
@@ -221,18 +254,39 @@ impl App {
     }
 
     fn preset_action(&mut self, action: PresetAction) {
+        let own = presets::active_user_preset(&self.settings);
         match action {
             PresetAction::Select(index) => {
+                let Some(name) = self.settings.preset(index).map(|p| p.name.clone()) else {
+                    return;
+                };
+                // Applying a preset is an undo step of its own.
+                self.history.commit();
+                let before = self.settings.eq.curve();
                 self.settings.apply_preset(index);
                 self.selected = None;
+                let text = format!("Applied {name}");
+                if self.settings.eq.curve() == before {
+                    self.notify(text);
+                } else {
+                    self.undoable = Some(text);
+                }
             }
-            PresetAction::Save => match self.settings.active_preset.clone() {
-                Some(name) => self.settings.save_preset(&name),
+            PresetAction::Save => match own.and_then(|i| self.settings.preset(i)) {
+                Some(preset) => {
+                    let name = preset.name.clone();
+                    match self.settings.save_preset(&name) {
+                        Ok(()) => self.notify(format!("Saved {name}")),
+                        Err(error) => self.notify(error.to_string()),
+                    }
+                }
                 None => self.dialog = Some(Dialog::save_as(&self.settings)),
             },
             PresetAction::SaveAs => self.dialog = Some(Dialog::save_as(&self.settings)),
-            PresetAction::Rename => self.dialog = Dialog::rename(&self.settings),
-            PresetAction::Delete => self.dialog = Dialog::delete(&self.settings),
+            PresetAction::Rename => self.dialog = own.and_then(|i| Dialog::rename(&self.settings, i)),
+            PresetAction::Delete => self.dialog = own.and_then(|i| Dialog::delete(&self.settings, i)),
+            PresetAction::RenameAt(index) => self.dialog = Dialog::rename(&self.settings, index),
+            PresetAction::DeleteAt(index) => self.dialog = Dialog::delete(&self.settings, index),
             PresetAction::Import => {
                 let file = rfd::FileDialog::new()
                     .set_title("Import an AutoEq or Equalizer APO file")
@@ -248,18 +302,32 @@ impl App {
     /// Loads an Equalizer APO file as a preset named after it.
     fn import(&mut self, path: &Path) {
         let notice = match import::read(path) {
-            Ok((name, imported)) => {
-                self.settings.import_preset(&name, &imported.curve);
-                self.selected = None;
-                match imported.skipped {
-                    0 => format!("Imported “{name}”"),
-                    1 => format!("Imported “{name}”, 1 filter skipped"),
-                    n => format!("Imported “{name}”, {n} filters skipped"),
+            Ok((name, imported)) => match self.settings.import_preset(&name, &imported.curve) {
+                Ok(name) => {
+                    self.selected = None;
+                    match imported.skipped {
+                        0 => format!("Imported “{name}”"),
+                        1 => format!("Imported “{name}”, 1 filter skipped"),
+                        n => format!("Imported “{name}”, {n} filters skipped"),
+                    }
                 }
-            }
+                Err(error) => format!("Could not import “{name}”: {error}"),
+            },
             Err(error) => error,
         };
-        self.notice = Some((notice, Instant::now()));
+        self.notify(notice);
+    }
+
+    /// Follows up on a preset sheet that was confirmed.
+    fn dialog_done(&mut self, outcome: Outcome) {
+        match outcome {
+            Outcome::Saved(name) => self.notify(format!("Saved {name}")),
+            Outcome::Renamed { old, new } => self.history.rekey(&old, Some(&new)),
+            Outcome::Deleted(name) => {
+                self.history.rekey(&name, None);
+                self.notify(format!("Deleted {name}"));
+            }
+        }
     }
 
     fn show_window(&mut self, ctx: &egui::Context) {
@@ -283,7 +351,7 @@ impl App {
 
     fn toggle_login(&mut self) {
         if let Err(error) = login::set_enabled(!self.open_at_login) {
-            self.notice = Some((format!("Could not change Open at Login: {error}"), Instant::now()));
+            self.notify(format!("Could not change Open at Login: {error}"));
         }
         self.open_at_login = login::enabled();
     }
@@ -291,17 +359,19 @@ impl App {
     /// Runs what was chosen from the menus since the last call. A drag in the window can
     /// span this call, and `gesture_active` keeps it from ending the drag's undo step.
     fn run_commands(&mut self, ctx: &egui::Context, gesture_active: bool) {
-        let commands = self.menu.as_mut().map(AppMenu::take_commands).unwrap_or_default();
+        let mut commands = self.menu.as_mut().map(AppMenu::take_commands).unwrap_or_default();
+        if std::mem::take(&mut self.undo_requested) {
+            commands.insert(0, Command::Undo);
+        }
         // Undo and redo replace the state outright, so they are not themselves recorded.
         for command in &commands {
-            let changed = match command {
-                Command::Undo => self.history.undo(&mut self.settings.eq),
-                Command::Redo => self.history.redo(&mut self.settings.eq),
-                _ => false,
-            };
-            if changed {
-                self.selected = None;
-                self.mark_changed();
+            match command {
+                Command::Undo => self.undo(),
+                Command::Redo if self.history.redo(&mut self.settings) => {
+                    self.selected = None;
+                    self.mark_changed();
+                }
+                _ => {}
             }
         }
 
@@ -309,17 +379,41 @@ impl App {
         for command in commands {
             match command {
                 Command::ToggleBypass => self.settings.eq.bypass = !self.settings.eq.bypass,
-                Command::AddBand => self.settings.eq.add_band(&mut self.selected),
+                Command::AddBand => {
+                    if self.settings.eq.mode == Mode::Parametric {
+                        self.settings.eq.add_band(&mut self.selected);
+                    }
+                }
                 Command::DeleteBand => {
                     if let Some(index) = self.selected.take()
                         && index < self.settings.eq.bands.len()
                     {
                         self.settings.eq.bands.remove(index);
+                        self.undoable = Some(format!("Band {} deleted", index + 1));
+                    }
+                }
+                Command::RemoveAllBands => {
+                    if self.settings.eq.mode == Mode::Parametric && !self.settings.eq.bands.is_empty() {
+                        self.settings.eq.bands.clear();
+                        self.selected = None;
+                        self.undoable = Some("All bands removed".into());
                     }
                 }
                 Command::Reset => {
-                    self.settings.eq.reset_bands();
-                    self.selected = None;
+                    if self.settings.eq.can_reset() {
+                        self.settings.eq.reset();
+                        self.selected = None;
+                        self.undoable = Some(match self.settings.eq.mode {
+                            Mode::Parametric => "Bands and preamp reset".into(),
+                            Mode::Graphic => "Sliders and preamp reset".into(),
+                        });
+                    }
+                }
+                Command::SetMode(mode) => {
+                    if self.settings.eq.mode != mode {
+                        self.settings.eq.mode = mode;
+                        self.selected = None;
+                    }
                 }
                 Command::TogglePerDevice => self.settings.per_device = !self.settings.per_device,
                 Command::Preset(action) => {
@@ -342,13 +436,32 @@ impl App {
         self.finish_edits(&before, gesture_active);
     }
 
+    fn undo(&mut self) {
+        if self.history.undo(&mut self.settings) {
+            self.selected = None;
+            self.mark_changed();
+        }
+    }
+
     /// Call with the settings from before a round of edits, to save, send and record them.
     fn finish_edits(&mut self, before: &Settings, gesture_active: bool) {
         if self.settings != *before {
-            self.settings.eq.bands.iter_mut().for_each(|b| b.clamp());
+            self.settings.eq.clamp();
             self.mark_changed();
         }
-        self.history.observe(&before.eq, &self.settings.eq, gesture_active);
+        self.history.observe(before, &self.settings, gesture_active);
+        if let Some(text) = self.undoable.take() {
+            // A one-off action is a step of its own, which the message's Undo undoes. An
+            // action that changed nothing undoable, such as only switching mode, offers none.
+            let serial = self.history.serial();
+            self.history.commit();
+            let undo = (self.history.serial() != serial).then(|| self.history.serial());
+            self.notice = Some(Notice {
+                text,
+                shown: Instant::now(),
+                undo,
+            });
+        }
         self.push_changes();
     }
 
@@ -358,16 +471,23 @@ impl App {
         };
         // While a sheet is open, ⌘Z belongs to its text field.
         let no_sheet = self.dialog.is_none();
+        let eq = &self.settings.eq;
+        let parametric = eq.mode == Mode::Parametric;
+        let own = presets::active_user_preset(&self.settings);
         menu.sync(MenuState {
             can_undo: no_sheet && self.history.can_undo(),
             can_redo: no_sheet && self.history.can_redo(),
-            bypass: self.settings.eq.bypass,
-            can_add: self.settings.eq.bands.len() < MAX_BANDS,
-            has_selection: self.selected.is_some(),
+            bypass: eq.bypass,
+            mode: eq.mode,
+            can_add: parametric && eq.bands.len() < MAX_BANDS,
+            has_selection: parametric && self.selected.is_some(),
+            can_remove_all: parametric && !eq.bands.is_empty(),
+            can_reset: eq.can_reset(),
             per_device: self.settings.per_device,
-            presets: self.settings.presets.iter().map(|p| p.name.clone()).collect(),
+            presets: self.settings.all_presets().map(|p| p.name.clone()).collect(),
             active_preset: self.settings.active_index(),
-            preset_modified: self.settings.is_modified(),
+            can_save_preset: own.is_some() && self.settings.is_modified(),
+            can_change_preset: own.is_some(),
             open_at_login: self.open_at_login,
         });
     }
@@ -429,7 +549,7 @@ impl eframe::App for App {
             && self.waiting_for_audio.is_some_and(|t| t.elapsed() > SILENCE_HINT_AFTER);
         let sample_rate = self.sample_rate();
 
-        let mut picked = None;
+        let mut requests = Requests::default();
         let p = &theme::palette(ui);
         let panel = |margin: Margin| Frame::new().fill(p.window).inner_margin(margin);
         // The top margin clears the transparent title bar and its window buttons.
@@ -437,7 +557,14 @@ impl eframe::App for App {
             .frame(panel(Margin { left: 16, right: 16, top: 38, bottom: 10 }))
             .show_separator_line(false)
             .show(ui, |ui| {
-                picked = controls::top_bar(ui, &mut self.settings, &level, &status);
+                controls::top_bar(
+                    ui,
+                    &mut self.settings,
+                    &level,
+                    &status,
+                    sample_rate,
+                    &mut requests,
+                );
                 if silent {
                     ui.label(
                         RichText::new(
@@ -453,24 +580,46 @@ impl eframe::App for App {
             .frame(panel(Margin { left: 8, right: 16, top: 8, bottom: 12 }))
             .show_separator_line(false)
             .resizable(true)
-            .default_size(244.0)
-            .min_size(96.0)
+            .default_size(EDITOR_HEIGHT)
+            .min_size(200.0)
             .show(ui, |ui| {
-                controls::band_list(ui, &mut self.settings.eq, &mut self.selected);
+                controls::editor(ui, &mut self.settings.eq, &mut self.selected, &mut requests);
             });
         CentralPanel::default()
             .frame(panel(Margin { left: 16, right: 16, top: 4, bottom: 4 }))
             .show(ui, |ui| {
-                curve::show(ui, &mut self.settings.eq, &mut self.selected, sample_rate);
+                // While a sheet is open, the keyboard belongs to it.
+                let keys = self.dialog.is_none();
+                curve::show(
+                    ui,
+                    &mut self.settings.eq,
+                    &mut self.selected,
+                    sample_rate,
+                    keys,
+                    &mut requests,
+                );
             });
 
-        if let Some(action) = picked {
+        if let Some(action) = requests.preset {
             self.preset_action(action);
         }
+        if let Some(text) = requests.notice {
+            self.notify(text);
+        }
+        if let Some(text) = requests.undoable {
+            self.undoable = Some(text);
+        }
+        if requests.undo {
+            self.undo_requested = true;
+            ui.ctx().request_repaint();
+        }
         if let Some(dialog) = &mut self.dialog
-            && !dialog.show(ui.ctx(), &mut self.settings)
+            && let Some(outcome) = dialog.show(ui.ctx(), &mut self.settings)
         {
             self.dialog = None;
+            if let Some(outcome) = outcome {
+                self.dialog_done(outcome);
+            }
         }
 
         let pointer_down = ui.input(|i| i.pointer.any_down());

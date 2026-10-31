@@ -42,10 +42,7 @@ fn filter(tokens: &[&str]) -> Option<Band> {
 }
 
 pub fn parse(text: &str) -> Result<Imported, String> {
-    let mut curve = Curve {
-        bands: Vec::new(),
-        preamp_db: 0.0,
-    };
+    let mut curve = Curve::default();
     let mut skipped = 0;
     let mut recognized = false;
     for line in text.lines() {

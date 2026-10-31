@@ -1,9 +1,10 @@
 use super::biquad::{BiquadState, Coeffs};
-use crate::state::{EqState, MAX_BANDS};
+use super::stages::{MAX_STAGES, Stages, balance_db};
+use crate::state::EqState;
 
 /// How often (in frames) filter coefficients step toward their targets.
 const CONTROL_INTERVAL: u32 = 32;
-/// Smoothing time constant for coefficients, preamp and bypass.
+/// Smoothing time constant for coefficients, gains and bypass.
 const SMOOTH_SECONDS: f64 = 0.010;
 /// The limiter keeps peaks at or under this, 0.1 dB below full scale.
 const LIMIT_CEILING: f64 = 0.988_553;
@@ -13,9 +14,9 @@ const LIMIT_RELEASE_SECONDS: f64 = 0.100;
 /// Everything the audio thread needs, precomputed on the UI thread.
 #[derive(Clone, Copy, Debug)]
 pub struct ChainParams {
-    pub coeffs: [Coeffs; MAX_BANDS],
-    /// Linear preamp gain.
-    pub preamp: f64,
+    pub stages: Stages,
+    /// Linear gain for each channel: the preamp, with the balance cut on one side.
+    pub gain: [f64; 2],
     pub bypass: bool,
     /// Turn the output down for as long as it would otherwise exceed full scale.
     pub limit: bool,
@@ -23,13 +24,11 @@ pub struct ChainParams {
 
 impl ChainParams {
     pub fn from_state(state: &EqState, sample_rate: f64) -> Self {
-        let mut coeffs = [Coeffs::IDENTITY; MAX_BANDS];
-        for (slot, band) in coeffs.iter_mut().zip(&state.bands) {
-            *slot = Coeffs::for_band(band, sample_rate);
-        }
+        let balance = balance_db(state.balance);
+        let gain = |channel: usize| 10f64.powf((state.preamp_db + balance[channel]) as f64 / 20.0);
         ChainParams {
-            coeffs,
-            preamp: 10f64.powf(state.preamp_db as f64 / 20.0),
+            stages: Stages::new(state, sample_rate),
+            gain: [gain(0), gain(1)],
             bypass: state.bypass,
             limit: state.clip_protection,
         }
@@ -39,11 +38,16 @@ impl ChainParams {
 /// Stereo biquad cascade with click-free parameter changes. Allocation-free, so it is safe
 /// to run on the audio thread.
 pub struct Chain {
-    current: [Coeffs; MAX_BANDS],
-    target: [Coeffs; MAX_BANDS],
-    state: [[BiquadState; MAX_BANDS]; 2],
-    preamp: f64,
-    preamp_target: f64,
+    current: [Coeffs; MAX_STAGES],
+    target: [Coeffs; MAX_STAGES],
+    state: [[BiquadState; MAX_STAGES]; 2],
+    /// Stages being run. While a change settles this covers both the old and new stages,
+    /// so filters that are going away fade out instead of stopping.
+    active: usize,
+    /// Stages the target uses.
+    target_len: usize,
+    gain: [f64; 2],
+    gain_target: [f64; 2],
     /// 1.0 = fully processed, 0.0 = bypassed.
     wet: f64,
     wet_target: f64,
@@ -61,11 +65,13 @@ impl Chain {
     pub fn new(sample_rate: f64, params: &ChainParams) -> Self {
         let wet = if params.bypass { 0.0 } else { 1.0 };
         Chain {
-            current: params.coeffs,
-            target: params.coeffs,
-            state: [[BiquadState::default(); MAX_BANDS]; 2],
-            preamp: params.preamp,
-            preamp_target: params.preamp,
+            current: params.stages.coeffs,
+            target: params.stages.coeffs,
+            state: [[BiquadState::default(); MAX_STAGES]; 2],
+            active: params.stages.len,
+            target_len: params.stages.len,
+            gain: params.gain,
+            gain_target: params.gain,
             wet,
             wet_target: wet,
             limit: params.limit,
@@ -79,8 +85,10 @@ impl Chain {
     }
 
     pub fn set_params(&mut self, params: &ChainParams) {
-        self.target = params.coeffs;
-        self.preamp_target = params.preamp;
+        self.target = params.stages.coeffs;
+        self.target_len = params.stages.len;
+        self.active = self.active.max(params.stages.len);
+        self.gain_target = params.gain;
         self.wet_target = if params.bypass { 0.0 } else { 1.0 };
         self.limit = params.limit;
         self.settled = false;
@@ -94,8 +102,11 @@ impl Chain {
         let mut out = [0f64; 2];
         for ch in 0..2 {
             let dry = input[ch] as f64;
-            let mut x = dry * self.preamp;
-            for (state, coeffs) in self.state[ch].iter_mut().zip(&self.current) {
+            let mut x = dry * self.gain[ch];
+            for (state, coeffs) in self.state[ch][..self.active]
+                .iter_mut()
+                .zip(&self.current[..self.active])
+            {
                 x = state.tick(coeffs, x);
             }
             out[ch] = dry + self.wet * (x - dry);
@@ -126,7 +137,9 @@ impl Chain {
     }
 
     fn smooth(&mut self) {
-        self.preamp += (self.preamp_target - self.preamp) * self.k_sample;
+        for ch in 0..2 {
+            self.gain[ch] += (self.gain_target[ch] - self.gain[ch]) * self.k_sample;
+        }
         self.wet += (self.wet_target - self.wet) * self.k_sample;
 
         if self.countdown > 0 {
@@ -136,16 +149,23 @@ impl Chain {
         self.countdown = CONTROL_INTERVAL - 1;
 
         let mut max_diff = 0f64;
-        for (cur, tgt) in self.current.iter_mut().zip(&self.target) {
+        for (cur, tgt) in self.current[..self.active].iter_mut().zip(&self.target) {
             max_diff = max_diff.max(cur.approach(tgt, self.k_control));
         }
-        max_diff = max_diff
-            .max((self.preamp_target - self.preamp).abs())
-            .max((self.wet_target - self.wet).abs());
+        for ch in 0..2 {
+            max_diff = max_diff.max((self.gain_target[ch] - self.gain[ch]).abs());
+        }
+        max_diff = max_diff.max((self.wet_target - self.wet).abs());
         if max_diff < 1e-7 {
             self.current = self.target;
-            self.preamp = self.preamp_target;
+            self.gain = self.gain_target;
             self.wet = self.wet_target;
+            // Stages no longer in use are identity filters by now. Clear them so they
+            // start from silence when they come back.
+            for state in &mut self.state {
+                state[self.target_len..self.active].fill(BiquadState::default());
+            }
+            self.active = self.target_len;
             self.settled = true;
             self.countdown = 0;
         }
@@ -155,7 +175,7 @@ impl Chain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{Band, FilterKind};
+    use crate::state::{Band, FilterKind, Mode};
 
     const FS: f64 = 48_000.0;
 
@@ -241,6 +261,40 @@ mod tests {
         assert!(max_step < 0.14, "max step {max_step}");
         let peak = steady_peak(&mut chain, 1_000.0, 4_800, 2_400);
         assert!((peak - 0.25 * 10f32.powf(12.0 / 20.0)).abs() < 1e-2);
+    }
+
+    #[test]
+    fn balance_turns_down_one_channel() {
+        let state = EqState {
+            balance: 0.5,
+            ..EqState::default()
+        };
+        let mut chain = Chain::new(FS, &ChainParams::from_state(&state, FS));
+        let out = chain.tick([0.5, 0.5]);
+        assert!((out[0] - 0.25).abs() < 1e-3, "{out:?}");
+        assert_eq!(out[1], 0.5);
+    }
+
+    #[test]
+    fn graphic_mode_plays_its_sliders() {
+        let mut state = EqState {
+            mode: Mode::Graphic,
+            clip_protection: false,
+            ..EqState::default()
+        };
+        state.graphic.set_band_count(31);
+        state.graphic.gains_db.fill(6.0);
+        let mut chain = Chain::new(FS, &ChainParams::from_state(&state, FS));
+        let peak = steady_peak(&mut chain, 1_000.0, 48_000, 4_800);
+        let expected = 0.25 * 10f32.powf(6.0 / 20.0);
+        assert!((peak - expected).abs() < 0.01, "{peak} vs {expected}");
+
+        // Back to parametric: the graphic filters fade away and the chain shrinks.
+        state.mode = Mode::Parametric;
+        chain.set_params(&ChainParams::from_state(&state, FS));
+        steady_peak(&mut chain, 1_000.0, 48_000, 1);
+        assert!(chain.settled);
+        assert_eq!(chain.active, 2 + state.bands.len());
     }
 
     #[test]

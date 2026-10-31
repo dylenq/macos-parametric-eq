@@ -1,12 +1,17 @@
-use super::presets::{self, PresetAction};
+use super::presets;
 use super::theme::{self, Palette};
+use super::{Requests, format_balance, format_gain, graphic, parse_freq, parse_gain};
+use crate::dsp::graphic::COUNTS;
+use crate::dsp::response;
 use crate::state::{
-    Band, EqState, FilterKind, Settings, MAX_BANDS, MAX_FREQ, MAX_GAIN_DB, MAX_Q, MIN_FREQ, MIN_Q,
+    Band, EqState, FilterKind, MAX_BANDS, MAX_FREQ, MAX_GAIN_DB, MAX_Q, MIN_FREQ, MIN_Q, Mode,
+    SLIDER_MAX_DB, Settings, snap_balance,
 };
 use eframe::egui::{
     Align, Button, Checkbox, Color32, ComboBox, DragValue, Frame, Label, Layout, Margin, Response,
     RichText, ScrollArea, Sense, Slider, Ui, WidgetInfo, WidgetType, pos2, vec2,
 };
+use std::cell::Cell;
 
 const ROW_HEIGHT: f32 = 22.0;
 /// Column widths shared by the header and every band row.
@@ -16,6 +21,14 @@ const VALUE_WIDTH: f32 = 84.0;
 const METER_WIDTH: f32 = 96.0;
 /// Room kept for the "Clipping" label so the status text does not jump when it appears.
 const CLIPPING_WIDTH: f32 = 52.0;
+/// Height of the rows under the bands: buttons, then bass, treble and balance.
+const FOOTER_HEIGHT: f32 = 64.0;
+const TONE_SLIDER_WIDTH: f32 = 120.0;
+/// Over full scale by less than this still counts as fitting.
+const OVER_THRESHOLD_DB: f32 = 0.05;
+/// The suggested preamp is offered when it differs from the preamp by at least this.
+const SUGGEST_THRESHOLD_DB: f32 = 0.5;
+const FULL_MESSAGE: &str = "All 16 bands are in use. Remove one to add another.";
 
 /// Output level in dB and whether the signal recently exceeded full scale.
 pub struct Level {
@@ -23,16 +36,23 @@ pub struct Level {
     pub clipped: bool,
 }
 
-/// Equalizer switch, preamp and presets, and on the trailing side the output level and
-/// device.
+/// The status line: the output device, or a message that may offer Undo.
+pub struct Status {
+    pub text: String,
+    pub undo: bool,
+}
+
+/// Equalizer switch, preamp, headroom and presets, and on the trailing side the output
+/// level and device.
 pub fn top_bar(
     ui: &mut Ui,
     settings: &mut Settings,
     level: &Level,
-    status: &str,
-) -> Option<PresetAction> {
+    status: &Status,
+    sample_rate: f64,
+    requests: &mut Requests,
+) {
     let p = &theme::palette(ui);
-    let mut action = None;
     ui.horizontal(|ui| {
         let state = &mut settings.eq;
         let mut on = !state.bypass;
@@ -48,24 +68,32 @@ pub fn top_bar(
         ui.add_space(16.0);
         ui.label(RichText::new("Preamp").color(p.secondary));
         // Shorter than elsewhere, to leave the device name room.
-        ui.spacing_mut().slider_width = 120.0;
-        ui.add(
-            Slider::new(&mut state.preamp_db, -MAX_GAIN_DB..=MAX_GAIN_DB)
-                .suffix(" dB")
-                .fixed_decimals(1),
-        )
-        .on_hover_text("Lower this if boosts make the output clip");
+        ui.spacing_mut().slider_width = 110.0;
+        let preamp = ui
+            .add(
+                Slider::new(&mut state.preamp_db, -MAX_GAIN_DB..=MAX_GAIN_DB)
+                    .suffix(" dB")
+                    .fixed_decimals(1),
+            )
+            .on_hover_text("Lower this if boosts make the output clip. Double-click for 0 dB.");
+        if preamp.double_clicked() {
+            state.preamp_db = 0.0;
+        }
+        headroom(ui, state, sample_rate, p);
 
         ui.add_space(8.0);
-        action = presets::picker(ui, settings);
+        requests.preset = presets::picker(ui, settings);
 
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             // The device name gives way first when the window is narrow.
             let reserved = METER_WIDTH + CLIPPING_WIDTH + 32.0;
             ui.scope(|ui| {
                 ui.set_max_width((ui.available_width() - reserved).max(0.0));
-                ui.add(Label::new(RichText::new(status).color(p.secondary)).truncate())
-                    .on_hover_text(status);
+                if status.undo && ui.link("Undo").clicked() {
+                    requests.undo = true;
+                }
+                ui.add(Label::new(RichText::new(&status.text).color(p.secondary)).truncate())
+                    .on_hover_text(&status.text);
             });
             ui.add_space(8.0);
             meter(ui, level, p);
@@ -75,7 +103,40 @@ pub fn top_bar(
             }
         });
     });
-    action
+}
+
+/// How far the loudest boost stays under full scale with this preamp, and a preamp that
+/// would keep it there.
+fn headroom(ui: &mut Ui, state: &mut EqState, sample_rate: f64, p: &Palette) {
+    if state.bypass {
+        return;
+    }
+    let peak = response::peak_db(state, sample_rate);
+    let headroom = -(peak + state.preamp_db);
+    if headroom < -OVER_THRESHOLD_DB {
+        let (color, hint) = if state.clip_protection {
+            (p.secondary, "Clip Protection turns the output down while boosts go over full scale")
+        } else {
+            (p.danger, "The loudest boost goes past full scale, so loud audio will clip")
+        };
+        ui.label(RichText::new(format!("Over by {:.1} dB", -headroom)).color(color))
+            .on_hover_text(hint);
+    } else {
+        ui.label(
+            RichText::new(format!("Headroom {:.1} dB", headroom.max(0.0))).color(p.secondary),
+        )
+        .on_hover_text("How far the loudest boost stays under full scale");
+    }
+    let suggested = response::suggested_preamp_db(peak);
+    if suggested < 0.0
+        && (suggested - state.preamp_db).abs() >= SUGGEST_THRESHOLD_DB
+        && ui
+            .small_button(format!("Apply {}", format_gain(suggested)))
+            .on_hover_text("Set the preamp so the loudest boost just reaches full scale")
+            .clicked()
+    {
+        state.preamp_db = suggested;
+    }
 }
 
 /// A compact on/off switch in the system style.
@@ -119,10 +180,164 @@ fn row_frame(fill: Color32) -> Frame {
         .inner_margin(Margin::symmetric(8, 3))
 }
 
+/// The lower half of the window: the mode, the bands or sliders, the buttons that act on
+/// them, and bass, treble and balance.
+pub fn editor(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, requests: &mut Requests) {
+    let p = &theme::palette(ui);
+    row_frame(Color32::TRANSPARENT).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let before = state.mode;
+            ui.selectable_value(&mut state.mode, Mode::Parametric, "Parametric")
+                .on_hover_text("Up to 16 bands of any type (⌘1)");
+            ui.selectable_value(&mut state.mode, Mode::Graphic, "Graphic")
+                .on_hover_text("Fixed bands with a slider each (⌘2)");
+            if state.mode != before {
+                *selected = None;
+            }
+            ui.add_space(12.0);
+            match state.mode {
+                Mode::Graphic => {
+                    let mut count = state.graphic.band_count;
+                    ComboBox::from_id_salt("band-count")
+                        .selected_text(format!("{count} bands"))
+                        .show_ui(ui, |ui| {
+                            for n in COUNTS {
+                                ui.selectable_value(&mut count, n, format!("{n} bands"));
+                            }
+                        })
+                        .response
+                        .on_hover_text("Number of sliders. The curve keeps its shape.");
+                    state.graphic.set_band_count(count);
+                }
+                Mode::Parametric => {
+                    ui.label(
+                        RichText::new(format!("{} of {MAX_BANDS} bands", state.bands.len()))
+                            .color(p.secondary),
+                    );
+                }
+            }
+        });
+    });
+
+    let content = (ui.available_height() - FOOTER_HEIGHT).max(60.0);
+    ui.allocate_ui(vec2(ui.available_width(), content), |ui| {
+        ui.set_min_height(content);
+        match state.mode {
+            Mode::Parametric => band_list(ui, state, selected, requests),
+            Mode::Graphic => {
+                Frame::new().inner_margin(Margin::symmetric(8, 0)).show(ui, |ui| {
+                    graphic::sliders(ui, &mut state.graphic);
+                });
+            }
+        }
+    });
+
+    row_frame(Color32::TRANSPARENT).show(ui, |ui| {
+        ui.horizontal(|ui| buttons(ui, state, selected, requests));
+    });
+    row_frame(Color32::TRANSPARENT).show(ui, |ui| {
+        ui.horizontal(|ui| tone(ui, state));
+    });
+}
+
+fn buttons(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, requests: &mut Requests) {
+    if state.mode == Mode::Parametric {
+        let full = state.bands.len() >= MAX_BANDS;
+        let add = ui
+            .add_enabled(!full, Button::new("Add Band"))
+            .on_disabled_hover_text(FULL_MESSAGE);
+        if add.clicked() {
+            state.add_band(selected);
+        }
+        let remove = ui
+            .add_enabled(!state.bands.is_empty(), Button::new("Remove All"))
+            .on_hover_text("Remove every band. Undo with ⌘Z.");
+        if remove.clicked() {
+            state.bands.clear();
+            *selected = None;
+            requests.undoable = Some("All bands removed".into());
+        }
+    }
+    let (hint, done) = match state.mode {
+        Mode::Parametric => ("Restore the default flat bands and preamp", "Bands and preamp reset"),
+        Mode::Graphic => ("Put every slider and the preamp at 0", "Sliders and preamp reset"),
+    };
+    if ui
+        .add_enabled(state.can_reset() || state.tone_set(), Button::new("Reset"))
+        .on_hover_text(format!("{hint}. Undo with ⌘Z."))
+        .clicked()
+    {
+        if state.can_reset() {
+            state.reset();
+            *selected = None;
+            requests.undoable = Some(done.into());
+        } else {
+            requests.notice = Some("Bass, treble and balance reset by double-clicking their sliders".into());
+        }
+    }
+    ui.add_space(8.0);
+    ui.checkbox(&mut state.clip_protection, "Clip Protection")
+        .on_hover_text("Turns the output down for a moment when boosts would make it clip");
+}
+
+/// Bass and treble shelves and the left/right balance, shared by both modes.
+fn tone(ui: &mut Ui, state: &mut EqState) {
+    let p = &theme::palette(ui);
+    ui.spacing_mut().slider_width = TONE_SLIDER_WIDTH;
+    let caption = |ui: &mut Ui, text: &str| {
+        ui.label(RichText::new(text).color(p.secondary));
+    };
+    for (name, value, hint) in [
+        ("Bass", &mut state.bass_db, "Low shelf at 100 Hz. Double-click for 0 dB."),
+        ("Treble", &mut state.treble_db, "High shelf at 10 kHz. Double-click for 0 dB."),
+    ] {
+        caption(ui, name);
+        let slider = ui
+            .add(
+                Slider::new(value, -SLIDER_MAX_DB..=SLIDER_MAX_DB)
+                    .step_by(0.5)
+                    .custom_formatter(|v, _| format_gain(v as f32))
+                    .custom_parser(parse_gain),
+            )
+            .on_hover_text(hint);
+        if slider.double_clicked() {
+            *value = 0.0;
+        }
+        ui.add_space(12.0);
+    }
+    caption(ui, "Balance");
+    let slider = ui
+        .add(
+            Slider::new(&mut state.balance, -1.0..=1.0)
+                .step_by(0.01)
+                .custom_formatter(|v, _| format_balance(v as f32))
+                .custom_parser(parse_balance),
+        )
+        .on_hover_text("Turns the other side down. Double-click to centre.");
+    if slider.double_clicked() {
+        state.balance = 0.0;
+    }
+    state.balance = snap_balance(state.balance);
+}
+
+/// "L 30", "R 30", "Centre", or a number from -100 (left) to 100 (right).
+fn parse_balance(text: &str) -> Option<f64> {
+    let text = text.trim().to_lowercase();
+    if text.starts_with("c") {
+        return Some(0.0);
+    }
+    let (sign, rest) = match text.strip_prefix('l') {
+        Some(rest) => (-1.0, rest),
+        None => (1.0, text.strip_prefix('r').unwrap_or(&text)),
+    };
+    parse_gain(rest).map(|v| sign * v / 100.0)
+}
+
 /// One editable row per band under a header that names the columns.
-pub fn band_list(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>) {
+fn band_list(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, requests: &mut Requests) {
     let p = &theme::palette(ui);
     let mut delete = None;
+    let note = Cell::new(None);
 
     row_frame(Color32::TRANSPARENT).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -141,8 +356,19 @@ pub fn band_list(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>)
         });
     });
 
-    ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+    ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 1.0;
+        if state.bands.is_empty() {
+            row_frame(Color32::TRANSPARENT).show(ui, |ui| {
+                ui.label(
+                    RichText::new(
+                        "No bands yet. Double-click the curve or use Add Band. Each band \
+                         shapes one part of the sound.",
+                    )
+                    .color(p.secondary),
+                );
+            });
+        }
         for (index, band) in state.bands.iter_mut().enumerate() {
             let fill = if *selected == Some(index) {
                 p.row_selected
@@ -150,7 +376,7 @@ pub fn band_list(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>)
                 Color32::TRANSPARENT
             };
             let row = row_frame(fill)
-                .show(ui, |ui| ui.horizontal(|ui| band_row(ui, index, band, p)).inner)
+                .show(ui, |ui| ui.horizontal(|ui| band_row(ui, index, band, p, &note)).inner)
                 .inner;
             if row.touched {
                 *selected = Some(index);
@@ -159,34 +385,15 @@ pub fn band_list(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>)
                 delete = Some(index);
             }
         }
-
-        ui.add_space(8.0);
-        row_frame(Color32::TRANSPARENT).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_enabled_ui(state.bands.len() < MAX_BANDS, |ui| {
-                    if ui.button("Add Band").clicked() {
-                        state.add_band(selected);
-                    }
-                });
-                if ui
-                    .button("Reset")
-                    .on_hover_text("Restore the default flat bands. Undo with ⌘Z.")
-                    .clicked()
-                {
-                    state.reset_bands();
-                    *selected = None;
-                }
-                ui.add_space(8.0);
-                ui.checkbox(&mut state.clip_protection, "Clip Protection").on_hover_text(
-                    "Turns the output down for a moment when boosts would make it clip",
-                );
-            });
-        });
     });
 
     if let Some(index) = delete {
         state.bands.remove(index);
         *selected = None;
+        requests.undoable = Some(format!("Band {} deleted", index + 1));
+    }
+    if let Some(message) = note.get() {
+        requests.notice = Some(message.into());
     }
 }
 
@@ -196,7 +403,35 @@ struct RowResult {
     delete: bool,
 }
 
-fn band_row(ui: &mut Ui, index: usize, band: &mut Band, p: &Palette) -> RowResult {
+/// Parses typed text with `parse`, and leaves a message in `note` when the text is not a
+/// number or falls outside `range`, which the field then clamps to.
+fn checked<'a>(
+    parse: fn(&str) -> Option<f64>,
+    range: std::ops::RangeInclusive<f64>,
+    limited: &'static str,
+    note: &'a Cell<Option<&'static str>>,
+) -> impl Fn(&str) -> Option<f64> + 'a {
+    move |text| match parse(text) {
+        None => {
+            note.set(Some("Enter a number."));
+            None
+        }
+        Some(value) => {
+            if !range.contains(&value) {
+                note.set(Some(limited));
+            }
+            Some(value)
+        }
+    }
+}
+
+fn band_row(
+    ui: &mut Ui,
+    index: usize,
+    band: &mut Band,
+    p: &Palette,
+    note: &Cell<Option<&'static str>>,
+) -> RowResult {
     let mut touched = false;
     let mut track = |response: &Response| {
         touched |= response.clicked() || response.dragged() || response.gained_focus();
@@ -234,25 +469,49 @@ fn band_row(ui: &mut Ui, index: usize, band: &mut Band, p: &Palette) -> RowResul
         DragValue::new(&mut band.freq)
             .range(MIN_FREQ..=MAX_FREQ)
             .speed(freq_speed)
-            .max_decimals(0)
+            .custom_formatter(|v, _| {
+                if v < 100.0 { format!("{v:.1}") } else { format!("{v:.0}") }
+            })
+            .custom_parser(checked(
+                parse_freq,
+                MIN_FREQ as f64..=MAX_FREQ as f64,
+                "Frequency limited to 20 Hz to 20 kHz.",
+                note,
+            ))
+            .update_while_editing(false)
             .suffix(" Hz"),
     ));
     ui.add_enabled_ui(band.kind.has_gain(), |ui| {
-        track(&ui.add_sized(
+        let gain = ui.add_sized(
             [VALUE_WIDTH, ROW_HEIGHT],
             DragValue::new(&mut band.gain_db)
                 .range(-MAX_GAIN_DB..=MAX_GAIN_DB)
                 .speed(0.1)
                 .fixed_decimals(1)
+                .custom_parser(checked(
+                    parse_gain,
+                    -MAX_GAIN_DB as f64..=MAX_GAIN_DB as f64,
+                    "Gain limited to \u{2212}24 dB to +24 dB.",
+                    note,
+                ))
+                .update_while_editing(false)
                 .suffix(" dB"),
-        ));
+        );
+        track(&gain.on_disabled_hover_text("Pass filters have no gain"));
     });
     track(&ui.add_sized(
         [VALUE_WIDTH, ROW_HEIGHT],
         DragValue::new(&mut band.q)
             .range(MIN_Q..=MAX_Q)
             .speed(q_speed)
-            .fixed_decimals(2),
+            .fixed_decimals(2)
+            .custom_parser(checked(
+                parse_gain,
+                MIN_Q as f64..=MAX_Q as f64,
+                "Q limited to 0.1 to 18.",
+                note,
+            ))
+            .update_while_editing(false),
     ));
 
     let delete = ui
@@ -263,4 +522,30 @@ fn band_row(ui: &mut Ui, index: usize, band: &mut Band, p: &Palette) -> RowResul
         .on_hover_text("Delete Band")
         .clicked();
     RowResult { touched, delete }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn balance_reads_sides_and_numbers() {
+        assert_eq!(parse_balance("L 30"), Some(-0.3));
+        assert_eq!(parse_balance("r30"), Some(0.3));
+        assert_eq!(parse_balance("Centre"), Some(0.0));
+        assert_eq!(parse_balance("-50"), Some(-0.5));
+        assert_eq!(parse_balance("left"), None);
+    }
+
+    #[test]
+    fn typed_values_out_of_range_leave_a_message() {
+        let note = Cell::new(None);
+        let parse = checked(parse_freq, 20.0..=20_000.0, "limited", &note);
+        assert_eq!(parse("1.5k"), Some(1_500.0));
+        assert_eq!(note.get(), None);
+        assert_eq!(parse("30k"), Some(30_000.0));
+        assert_eq!(note.get(), Some("limited"));
+        assert_eq!(parse("loud"), None);
+        assert_eq!(note.get(), Some("Enter a number."));
+    }
 }

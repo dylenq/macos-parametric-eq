@@ -1,3 +1,4 @@
+use crate::state::{Mode, builtins};
 use crate::tray::Tray;
 use crate::ui::presets::PresetAction;
 use eframe::egui;
@@ -10,8 +11,10 @@ pub enum Command {
     Undo,
     Redo,
     ToggleBypass,
+    SetMode(Mode),
     AddBand,
     DeleteBand,
+    RemoveAllBands,
     Reset,
     TogglePerDevice,
     Preset(PresetAction),
@@ -25,12 +28,15 @@ const PRESET_ID: &str = "preset:";
 
 impl Command {
     /// Every command with a fixed menu item. Presets get theirs as they are created.
-    const FIXED: [Command; 15] = [
+    const FIXED: [Command; 18] = [
         Command::Undo,
         Command::Redo,
         Command::ToggleBypass,
+        Command::SetMode(Mode::Parametric),
+        Command::SetMode(Mode::Graphic),
         Command::AddBand,
         Command::DeleteBand,
+        Command::RemoveAllBands,
         Command::Reset,
         Command::TogglePerDevice,
         Command::Preset(PresetAction::Save),
@@ -48,8 +54,11 @@ impl Command {
             Command::Undo => "undo".into(),
             Command::Redo => "redo".into(),
             Command::ToggleBypass => "bypass".into(),
+            Command::SetMode(Mode::Parametric) => "parametric".into(),
+            Command::SetMode(Mode::Graphic) => "graphic".into(),
             Command::AddBand => "add-band".into(),
             Command::DeleteBand => "delete-band".into(),
+            Command::RemoveAllBands => "remove-all-bands".into(),
             Command::Reset => "reset".into(),
             Command::TogglePerDevice => "per-device".into(),
             Command::Preset(PresetAction::Select(index)) => format!("{PRESET_ID}{index}"),
@@ -57,6 +66,10 @@ impl Command {
             Command::Preset(PresetAction::SaveAs) => "save-preset-as".into(),
             Command::Preset(PresetAction::Rename) => "rename-preset".into(),
             Command::Preset(PresetAction::Delete) => "delete-preset".into(),
+            // Only the preset picker's rows rename and delete a preset other than the active
+            // one, so these never become menu items.
+            Command::Preset(PresetAction::RenameAt(index)) => format!("rename-preset:{index}"),
+            Command::Preset(PresetAction::DeleteAt(index)) => format!("delete-preset:{index}"),
             Command::Preset(PresetAction::Import) => "import-preset".into(),
             Command::ShowWindow => "show".into(),
             Command::ToggleLogin => "login".into(),
@@ -78,20 +91,27 @@ pub struct MenuState {
     pub can_undo: bool,
     pub can_redo: bool,
     pub bypass: bool,
+    pub mode: Mode,
     pub can_add: bool,
     pub has_selection: bool,
+    pub can_remove_all: bool,
+    pub can_reset: bool,
     pub per_device: bool,
+    /// Every preset, built-in ones first.
     pub presets: Vec<String>,
     pub active_preset: Option<usize>,
-    pub preset_modified: bool,
+    pub can_save_preset: bool,
+    /// The active preset is one of the user's own, which can be renamed and deleted.
+    pub can_change_preset: bool,
     pub open_at_login: bool,
 }
 
-/// One checkable menu item per preset, followed by a separator if there are any.
+/// One checkable menu item per preset, with a separator after the built-in presets and
+/// another after the user's own.
 #[derive(Default)]
 pub struct PresetItems {
     items: Vec<CheckMenuItem>,
-    separator: Option<PredefinedMenuItem>,
+    separators: Vec<PredefinedMenuItem>,
 }
 
 impl PresetItems {
@@ -101,19 +121,27 @@ impl PresetItems {
         for item in self.items.drain(..) {
             _ = menu.remove(&item);
         }
-        if let Some(separator) = self.separator.take() {
+        for separator in self.separators.drain(..) {
             _ = menu.remove(&separator);
         }
+        let mut at = position;
         for (index, name) in names.iter().enumerate() {
+            if index == builtins().len() {
+                let separator = PredefinedMenuItem::separator();
+                _ = menu.insert(&separator, at);
+                self.separators.push(separator);
+                at += 1;
+            }
             let id = Command::Preset(PresetAction::Select(index)).id();
             let item = CheckMenuItem::with_id(id, name, true, false, None);
-            _ = menu.insert(&item, position + index);
+            _ = menu.insert(&item, at);
             self.items.push(item);
+            at += 1;
         }
         if !names.is_empty() {
             let separator = PredefinedMenuItem::separator();
-            _ = menu.insert(&separator, position + names.len());
-            self.separator = Some(separator);
+            _ = menu.insert(&separator, at);
+            self.separators.push(separator);
         }
     }
 
@@ -131,8 +159,12 @@ pub struct AppMenu {
     undo: MenuItem,
     redo: MenuItem,
     bypass: CheckMenuItem,
+    parametric: CheckMenuItem,
+    graphic: CheckMenuItem,
     add: MenuItem,
     delete: MenuItem,
+    remove_all: MenuItem,
+    reset: MenuItem,
     per_device: CheckMenuItem,
     presets: Submenu,
     preset_items: PresetItems,
@@ -171,9 +203,15 @@ impl AppMenu {
             false,
             command_key(Code::KeyB),
         );
+        let mode = |mode: Mode, text: &str, key: Code| {
+            CheckMenuItem::with_id(Command::SetMode(mode).id(), text, true, false, command_key(key))
+        };
+        let parametric = mode(Mode::Parametric, "Parametric", Code::Digit1);
+        let graphic = mode(Mode::Graphic, "Graphic", Code::Digit2);
         let add = item(Command::AddBand, "Add Band", command_key(Code::KeyN));
         let delete = item(Command::DeleteBand, "Delete Band", None);
-        let reset = item(Command::Reset, "Reset Bands", None);
+        let remove_all = item(Command::RemoveAllBands, "Remove All Bands", None);
+        let reset = item(Command::Reset, "Reset", None);
         let per_device = CheckMenuItem::with_id(
             Command::TogglePerDevice.id(),
             "Separate EQ per Output Device",
@@ -222,8 +260,12 @@ impl AppMenu {
             &[
                 &bypass,
                 &separator(),
+                &parametric,
+                &graphic,
+                &separator(),
                 &add,
                 &delete,
+                &remove_all,
                 &separator(),
                 &reset,
                 &separator(),
@@ -271,8 +313,12 @@ impl AppMenu {
             undo,
             redo,
             bypass,
+            parametric,
+            graphic,
             add,
             delete,
+            remove_all,
+            reset,
             per_device,
             presets,
             preset_items: PresetItems::default(),
@@ -311,14 +357,18 @@ impl AppMenu {
         self.undo.set_enabled(state.can_undo);
         self.redo.set_enabled(state.can_redo);
         self.bypass.set_checked(state.bypass);
+        self.parametric.set_checked(state.mode == Mode::Parametric);
+        self.graphic.set_checked(state.mode == Mode::Graphic);
         self.add.set_enabled(state.can_add);
         self.delete.set_enabled(state.has_selection);
+        self.remove_all.set_enabled(state.can_remove_all);
+        self.reset.set_enabled(state.can_reset);
         self.per_device.set_checked(state.per_device);
         self.preset_items.check(state.active_preset);
         self.open_at_login.set_checked(state.open_at_login);
-        self.save_preset.set_enabled(state.preset_modified);
-        self.rename_preset.set_enabled(state.active_preset.is_some());
-        self.delete_preset.set_enabled(state.active_preset.is_some());
+        self.save_preset.set_enabled(state.can_save_preset);
+        self.rename_preset.set_enabled(state.can_change_preset);
+        self.delete_preset.set_enabled(state.can_change_preset);
         self.shown = Some(state);
     }
 }
