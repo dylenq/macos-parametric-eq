@@ -1,5 +1,11 @@
 use crate::state::{Band, Curve, FilterKind, MAX_BANDS, MAX_GAIN_DB};
+use std::io::Read;
 use std::path::Path;
+
+/// Largest file read as a configuration. AutoEq's run to a kilobyte; this leaves room for
+/// long hand-written ones while keeping a stray video dropped on the window from being
+/// read into memory.
+const MAX_FILE_BYTES: u64 = 1 << 20;
 
 /// A curve read from an Equalizer APO configuration, the format AutoEq publishes its
 /// headphone corrections in (`ParametricEQ.txt`).
@@ -21,10 +27,26 @@ fn kind(name: &str) -> Option<FilterKind> {
     }
 }
 
+/// A number as the file writes it. "nan" and "inf" parse as floats, but are not settings.
+fn number(token: &str) -> Option<f32> {
+    token.parse().ok().filter(|v: &f32| v.is_finite())
+}
+
 /// The number after `key`, as in `Fc 105 Hz` or `Gain -2.5 dB`.
 fn value(tokens: &[&str], key: &str) -> Option<f32> {
     let at = tokens.iter().position(|t| t.eq_ignore_ascii_case(key))?;
-    tokens.get(at + 1)?.parse().ok().filter(|v: &f32| v.is_finite())
+    number(tokens.get(at + 1)?)
+}
+
+/// The Q of a bandwidth given in octaves, as in `BW Oct 1.0`.
+fn bandwidth_q(tokens: &[&str]) -> Option<f32> {
+    let at = tokens.iter().position(|t| t.eq_ignore_ascii_case("BW"))?;
+    if !tokens.get(at + 1)?.eq_ignore_ascii_case("Oct") {
+        return None;
+    }
+    let octaves = number(tokens.get(at + 2)?).filter(|&n| n > 0.0)?;
+    let ratio = 2f32.powf(octaves);
+    Some(ratio.sqrt() / (ratio - 1.0)).filter(|q| q.is_finite())
 }
 
 /// Parses `ON PK Fc 105 Hz Gain 5.5 dB Q 0.70`, the part of a filter line after the colon.
@@ -34,7 +56,7 @@ fn filter(tokens: &[&str]) -> Option<Band> {
     if band.kind.has_gain() {
         band.gain_db = value(tokens, "Gain")?;
     }
-    if let Some(q) = value(tokens, "Q") {
+    if let Some(q) = value(tokens, "Q").or_else(|| bandwidth_q(tokens)) {
         band.q = q;
     }
     band.clamp();
@@ -52,8 +74,9 @@ pub fn parse(text: &str) -> Result<Imported, String> {
         let head = head.trim().to_ascii_lowercase();
         let tokens: Vec<&str> = rest.split_whitespace().collect();
         if head == "preamp" {
-            if let Some(db) = tokens.first().and_then(|t| t.parse::<f32>().ok()) {
-                curve.preamp_db = db.clamp(-MAX_GAIN_DB, MAX_GAIN_DB);
+            // Equalizer APO applies each preamp in turn, so they add up.
+            if let Some(db) = tokens.first().and_then(|t| number(t)) {
+                curve.preamp_db += db;
                 recognized = true;
             }
         } else if head.starts_with("filter") {
@@ -64,6 +87,7 @@ pub fn parse(text: &str) -> Result<Imported, String> {
             recognized = true;
         }
     }
+    curve.preamp_db = curve.preamp_db.clamp(-MAX_GAIN_DB, MAX_GAIN_DB);
     if recognized {
         Ok(Imported { curve, skipped })
     } else {
@@ -71,14 +95,47 @@ pub fn parse(text: &str) -> Result<Imported, String> {
     }
 }
 
+/// Text from a file in whatever encoding Windows editors save Equalizer APO files in:
+/// UTF-8 with or without a byte order mark, or UTF-16 with one. Anything else is read as
+/// UTF-8 with the odd character replaced, which leaves the ASCII settings intact.
+fn decode(bytes: &[u8]) -> String {
+    let utf16 = |rest: &[u8], unit: fn([u8; 2]) -> u16| {
+        let units = rest.as_chunks::<2>().0.iter().map(|&pair| unit(pair));
+        char::decode_utf16(units).map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)).collect()
+    };
+    match bytes {
+        [0xef, 0xbb, 0xbf, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
+        [0xff, 0xfe, rest @ ..] => utf16(rest, u16::from_le_bytes),
+        [0xfe, 0xff, rest @ ..] => utf16(rest, u16::from_be_bytes),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
+}
+
 /// Reads a configuration file. Returns a preset name taken from the file name with it.
 pub fn read(path: &Path) -> Result<(String, Imported), String> {
-    let text = std::fs::read_to_string(path).map_err(|error| format!("Could not read file: {error}"))?;
+    let error = |error: std::io::Error| format!("Could not read file: {error}");
+    let too_large = || Err("That file is too large to be an equalizer configuration".into());
+    // A pipe or device would block or never end, and a big file is not a configuration.
+    let meta = std::fs::metadata(path).map_err(error)?;
+    if !meta.is_file() {
+        return Err("Could not read file: not a regular file".into());
+    }
+    if meta.len() > MAX_FILE_BYTES {
+        return too_large();
+    }
+    // Bounded too, in case the file grew since.
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|file| file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(error)?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return too_large();
+    }
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Imported");
     // AutoEq names its files "Sennheiser HD 650 ParametricEQ.txt".
     let name = stem.strip_suffix("ParametricEQ").unwrap_or(stem).trim();
     let name = if name.is_empty() { "Imported" } else { name };
-    Ok((name.to_owned(), parse(&text)?))
+    Ok((name.to_owned(), parse(&decode(&bytes))?))
 }
 
 #[cfg(test)]
@@ -157,5 +214,53 @@ Filter 4: ON HSC Fc 10000 Hz Gain -3.0 dB Q 0.70
     fn rejects_files_that_are_something_else() {
         assert!(parse("").is_err());
         assert!(parse("Dear diary: today I boosted the bass\n").is_err());
+    }
+
+    #[test]
+    fn a_preamp_that_is_not_a_number_is_left_out() {
+        for text in ["Preamp: nan dB\n", "Preamp: NaN dB\n", "Preamp: inf dB\n", "Preamp: -infinity dB\n"] {
+            let imported = parse(&format!("{text}Filter 1: ON PK Fc 1000 Hz Gain 3 dB Q 1\n")).unwrap();
+            assert_eq!(imported.curve.preamp_db, 0.0, "{text}");
+        }
+    }
+
+    #[test]
+    fn reads_files_saved_with_a_byte_order_mark_or_as_utf16() {
+        let mut bom = "\u{feff}".to_owned();
+        bom.push_str(AUTOEQ);
+        assert_eq!(decode(bom.as_bytes()), AUTOEQ);
+        assert_eq!(parse(&decode(bom.as_bytes())).unwrap().curve.preamp_db, -6.2);
+
+        let le: Vec<u8> = [0xff, 0xfe].into_iter().chain(AUTOEQ.encode_utf16().flat_map(u16::to_le_bytes)).collect();
+        let be: Vec<u8> = [0xfe, 0xff].into_iter().chain(AUTOEQ.encode_utf16().flat_map(u16::to_be_bytes)).collect();
+        assert_eq!(decode(&le), AUTOEQ);
+        assert_eq!(decode(&be), AUTOEQ);
+        // Latin-1 from an old editor still reads, with the odd character replaced.
+        assert!(decode(b"Preamp: -3 dB \xb0\n").starts_with("Preamp: -3 dB"));
+    }
+
+    #[test]
+    fn preamps_add_up_and_bandwidth_becomes_q() {
+        let imported = parse(
+            "Preamp: -3 dB\nPreamp: -2.5 dB\n\
+             Filter 1: ON PK Fc 1000 Hz Gain 3 dB BW Oct 1\n\
+             Filter 2: ON PK Fc 2000 Hz Gain 3 dB Q 2 BW Oct 1\n",
+        )
+        .unwrap();
+        assert_eq!(imported.curve.preamp_db, -5.5);
+        let bands = &imported.curve.bands;
+        assert!((bands[0].q - std::f32::consts::SQRT_2).abs() < 1e-4, "{}", bands[0].q);
+        // Q wins when a line gives both.
+        assert_eq!(bands[1].q, 2.0);
+    }
+
+    #[test]
+    fn refuses_files_too_large_to_be_a_configuration() {
+        let path = std::env::temp_dir().join("eq-test-large.txt");
+        std::fs::write(&path, vec![b'#'; MAX_FILE_BYTES as usize + 1]).unwrap();
+        let result = read(&path);
+        std::fs::remove_file(&path).unwrap();
+        assert!(result.unwrap_err().contains("too large"));
+        assert!(read(&std::env::temp_dir()).unwrap_err().contains("not a regular file"));
     }
 }
