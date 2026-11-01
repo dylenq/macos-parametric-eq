@@ -1,0 +1,87 @@
+# Builds EQ.zip for a version tag (git tag v0.5.0 && git push origin v0.5.0) and attaches it,
+# with its SHA-256 checksum, to a draft GitHub release to review and publish.
+#
+# Without secrets the app is signed ad hoc, as before. With these repository secrets it is
+# signed with a Developer ID and notarized, so Gatekeeper opens it without a warning:
+#   MACOS_CERTIFICATE           base64 of the Developer ID Application certificate (.p12)
+#   MACOS_CERTIFICATE_PASSWORD  the .p12 password
+#   MACOS_SIGN_IDENTITY         e.g. "Developer ID Application: Your Name (TEAMID1234)"
+#   APPLE_ID                    the Apple ID that notarizes
+#   APPLE_TEAM_ID               the team ID
+#   APPLE_APP_PASSWORD          an app-specific password for that Apple ID
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    env:
+      SIGNED: ${{ secrets.MACOS_CERTIFICATE != '' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check the tag matches the version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          plist=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' bundle/Info.plist)
+          echo "Cargo.toml $version, Info.plist $plist, tag $GITHUB_REF_NAME"
+          test "v$version" = "$GITHUB_REF_NAME"
+          test "$version" = "$plist"
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Set up signing
+        if: env.SIGNED == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(uuidgen)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          xcrun notarytool store-credentials eq-notary --keychain "$keychain" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          {
+            echo "EQ_SIGN_IDENTITY=$MACOS_SIGN_IDENTITY"
+            echo "EQ_NOTARY_PROFILE=eq-notary"
+            echo "EQ_NOTARY_KEYCHAIN=$keychain"
+          } >> "$GITHUB_ENV"
+
+      - name: Build
+        run: ./scripts/bundle.sh --zip
+
+      - name: Check the bundle
+        run: |
+          codesign --verify --strict --verbose=2 target/EQ.app
+          target/EQ.app/Contents/MacOS/eq --version
+          cat target/EQ.zip.sha256
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            target/EQ.zip
+            target/EQ.zip.sha256

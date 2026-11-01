@@ -1,0 +1,23 @@
+# Proposes dependency updates once a month, grouped into one pull request per ecosystem.
+# Cargo updates are limited to patch releases: egui's and objc2's minor releases change their
+# APIs, so those are upgrades to do by hand. Security advisories still raise their own alerts.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    groups:
+      cargo:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

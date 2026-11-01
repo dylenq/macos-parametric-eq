@@ -1,0 +1,44 @@
+# Lints, tests and bundles every push to main and every pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Unit tests only: nothing here starts audio, which a runner could not do anyway.
+      - name: Test
+        run: cargo test
+
+      - name: Bundle
+        run: ./scripts/bundle.sh
+
+      - name: Check the bundle
+        run: |
+          codesign --verify --strict --verbose=2 target/EQ.app
+          codesign --display --entitlements - target/EQ.app
+          target/EQ.app/Contents/MacOS/eq --version
