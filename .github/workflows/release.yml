@@ -24,7 +24,7 @@ jobs:
     env:
       SIGNED: ${{ secrets.MACOS_CERTIFICATE != '' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Check the tag matches the version
         run: |
@@ -78,7 +78,7 @@ jobs:
           target/EQ.app/Contents/MacOS/eq --version
           cat target/EQ.zip.sha256
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           draft: true
           generate_release_notes: true
