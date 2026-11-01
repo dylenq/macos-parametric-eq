@@ -9,15 +9,18 @@ use objc2_core_audio::{
 use objc2_core_audio_types::{AudioBuffer, AudioBufferList, AudioTimeStamp};
 use std::ffi::c_void;
 use std::os::raw::c_int;
+use std::panic::AssertUnwindSafe;
 use std::ptr::NonNull;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 /// Peak levels since the last read, written by the audio thread.
 #[derive(Default)]
 pub struct Meters {
     input: AtomicU32,
     output: AtomicU32,
+    /// Processing panicked. The IOProc plays silence from then on, until the engine is replaced.
+    failed: AtomicBool,
 }
 
 impl Meters {
@@ -34,6 +37,10 @@ impl Meters {
             f32::from_bits(self.output.swap(0, Ordering::Relaxed)),
         )
     }
+
+    pub fn failed(&self) -> bool {
+        self.failed.load(Ordering::Relaxed)
+    }
 }
 
 /// State owned by the IOProc.
@@ -41,6 +48,9 @@ struct Callback {
     chain: Chain,
     params: rtrb::Consumer<ChainParams>,
     meters: Arc<Meters>,
+    /// Output channels for left and right, counted from 0. No right channel means a mono mix.
+    left: usize,
+    right: Option<usize>,
 }
 
 /// Running tap → EQ → output pipeline. Dropping it restores normal system audio.
@@ -68,12 +78,24 @@ impl Engine {
         make_params: impl FnOnce(f64) -> ChainParams,
     ) -> Result<Engine, String> {
         let output_uid =
-            devices::device_uid(output_device).ok_or("could not read the output device")?;
+            devices::device_uid(output_device).ok_or("Could not read the output device")?;
         let tap = Tap::new()?;
         let aggregate = Aggregate::new(&output_uid, &tap)?;
         let sample_rate = devices::sample_rate(aggregate.id)
             .or_else(|| devices::sample_rate(output_device))
-            .ok_or("could not read the output sample rate")?;
+            .ok_or("Could not read the output sample rate")?;
+
+        // The IOProc writes 32-bit floats. Written into an output passing encoded audio
+        // through, they would play as loud noise, so such an output is left alone. If the
+        // formats cannot be read at all, the output is assumed to be the usual float one.
+        let formats = devices::output_formats(aggregate.id);
+        if !formats.iter().all(devices::is_float32) {
+            return Err("EQ can't process this output's audio format. If it passes encoded \
+                        audio through to a receiver, switch that off in Audio MIDI Setup."
+                .into());
+        }
+        let channels = formats.iter().map(|f| f.mChannelsPerFrame as usize).sum();
+        let (left, right) = devices::speaker_channels(devices::stereo_channels(output_device), channels);
 
         let (producer, consumer) = rtrb::RingBuffer::new(32);
         let meters = Arc::new(Meters::default());
@@ -81,6 +103,8 @@ impl Engine {
             chain: Chain::new(sample_rate, &make_params(sample_rate)),
             params: consumer,
             meters: meters.clone(),
+            left,
+            right,
         }));
 
         let mut proc_id: AudioDeviceIOProcID = None;
@@ -93,6 +117,11 @@ impl Engine {
             )
         };
         if status == 0 {
+            // Only the tap is read: the output device's own inputs stay off.
+            if !devices::read_last_input_only(aggregate.id, proc_id) {
+                eprintln!("could not limit audio input to the tap");
+            }
+            // With the tap set to start the aggregate, this waits until something plays.
             status = unsafe { AudioDeviceStart(aggregate.id, proc_id) };
             if status != 0 {
                 unsafe { AudioDeviceDestroyIOProcID(aggregate.id, proc_id) };
@@ -100,7 +129,7 @@ impl Engine {
         }
         if status != 0 {
             drop(unsafe { Box::from_raw(callback) });
-            return Err(format!("could not start audio processing (error {status})"));
+            return Err(start_error(status));
         }
 
         Ok(Engine {
@@ -122,6 +151,18 @@ impl Engine {
     }
 }
 
+/// Why the output would not start, in words where the code is a common one.
+fn start_error(status: i32) -> String {
+    let code = devices::os_status(status);
+    let reason = match &status.to_be_bytes() {
+        b"!hog" => "another app has exclusive use of the output",
+        b"!dev" | b"nope" => "the output can't be used this way",
+        b"stop" => "the output has stopped",
+        _ => return format!("Could not start audio processing (error {code})"),
+    };
+    format!("Could not start audio processing: {reason} ({code})")
+}
+
 impl Drop for Engine {
     fn drop(&mut self) {
         unsafe {
@@ -140,10 +181,10 @@ struct Channel {
     frames: usize,
 }
 
-unsafe fn buffers<'a>(list: *mut AudioBufferList) -> &'a mut [AudioBuffer] {
+unsafe fn buffers<'a>(list: *mut AudioBufferList) -> &'a [AudioBuffer] {
     unsafe {
-        let first = (&raw mut (*list).mBuffers).cast::<AudioBuffer>();
-        std::slice::from_raw_parts_mut(first, (*list).mNumberBuffers as usize)
+        let first = (&raw const (*list).mBuffers).cast::<AudioBuffer>();
+        std::slice::from_raw_parts(first, (*list).mNumberBuffers as usize)
     }
 }
 
@@ -175,6 +216,12 @@ fn channel(buffers: &[AudioBuffer], mut index: usize) -> Option<Channel> {
     None
 }
 
+fn silence(buffers: &[AudioBuffer]) {
+    for buffer in buffers.iter().filter(|b| usable(b)) {
+        unsafe { std::ptr::write_bytes(buffer.mData.cast::<u8>(), 0, buffer.mDataByteSize as usize) };
+    }
+}
+
 unsafe extern "C-unwind" fn io_proc(
     _device: AudioObjectID,
     _now: NonNull<AudioTimeStamp>,
@@ -185,6 +232,23 @@ unsafe extern "C-unwind" fn io_proc(
     client: *mut c_void,
 ) -> c_int {
     let callback = unsafe { &mut *client.cast::<Callback>() };
+    let input = unsafe { buffers(input.as_ptr()) };
+    let output = unsafe { buffers(output.as_ptr()) };
+    silence(output);
+    if callback.meters.failed() {
+        return 0;
+    }
+    // A panic must not unwind into Core Audio. Play silence instead, and let the window
+    // know so it can start a fresh engine.
+    if std::panic::catch_unwind(AssertUnwindSafe(|| process(callback, input, output))).is_err() {
+        silence(output);
+        callback.meters.failed.store(true, Ordering::Relaxed);
+    }
+    0
+}
+
+/// Runs the tap's stereo input through the chain into the output, which starts silent.
+fn process(callback: &mut Callback, input: &[AudioBuffer], output: &[AudioBuffer]) {
     let mut latest = None;
     while let Ok(params) = callback.params.pop() {
         latest = Some(params);
@@ -193,24 +257,18 @@ unsafe extern "C-unwind" fn io_proc(
         callback.chain.set_params(&params);
     }
 
-    let input = unsafe { buffers(input.as_ptr()) };
-    let output = unsafe { buffers(output.as_ptr()) };
-    for buffer in output.iter().filter(|b| usable(b)) {
-        unsafe { std::ptr::write_bytes(buffer.mData.cast::<u8>(), 0, buffer.mDataByteSize as usize) };
-    }
-
     // The tap's stereo stream comes after any input streams of the output device itself.
     let in_channels = channel_count(input);
     let (Some(in_l), Some(in_r)) = (
         channel(input, in_channels.saturating_sub(2)),
         channel(input, in_channels.saturating_sub(1)),
     ) else {
-        return 0;
+        return;
     };
-    let Some(out_l) = channel(output, 0) else {
-        return 0;
+    let Some(out_l) = channel(output, callback.left).or_else(|| channel(output, 0)) else {
+        return;
     };
-    let out_r = channel(output, 1);
+    let out_r = callback.right.and_then(|right| channel(output, right));
 
     let frames = in_l
         .frames
@@ -233,7 +291,22 @@ unsafe extern "C-unwind" fn io_proc(
             }
         }
     }
+    callback.chain.flush_denormals();
     Meters::raise(&callback.meters.input, in_peak);
     Meters::raise(&callback.meters.output, out_peak);
-    0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_errors_say_what_went_wrong() {
+        let code = |s: &[u8; 4]| i32::from_be_bytes(*s);
+        assert_eq!(
+            start_error(code(b"!hog")),
+            "Could not start audio processing: another app has exclusive use of the output ('!hog')"
+        );
+        assert_eq!(start_error(-50), "Could not start audio processing (error -50)");
+    }
 }
