@@ -35,7 +35,7 @@
   "applicationCategory": "MultimediaApplication",
   "applicationSubCategory": "Audio equalizer",
   "operatingSystem": "macOS 14.2 or later",
-  "softwareVersion": "0.4.0",
+  "softwareVersion": "0.5.0",
   "license": "https://www.gnu.org/licenses/gpl-3.0.html",
   "url": "https://dylenq.github.io/macos-parametric-eq/",
   "downloadUrl": "https://github.com/dylenq/macos-parametric-eq/releases/latest",
@@ -47,6 +47,9 @@
   "featureList": [
     "System-wide equalizer for all macOS audio",
     "Up to 16 parametric bands",
+    "Graphic equalizer with 5, 10, 15 or 31 sliders",
+    "Bass, treble and balance controls",
+    "Built-in and custom presets",
     "Peak, low shelf, high shelf, low pass and high pass filters",
     "AutoEq and Equalizer APO preset import",
     "Separate EQ curve for each output device",
@@ -115,14 +118,14 @@ footer { color: var(--muted); font-size: 14px; padding-top: 48px; padding-bottom
   <h1>The system-wide parametric equalizer for macOS</h1>
   <p class="lede">A free, open-source EQ for every sound your Mac plays: music, browsers, games and calls. No audio driver, no kernel extension, no account.</p>
   <a class="cta" href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download for macOS</a>
-  <p class="meta">Version 0.4.0 · macOS 14.2 or later · Apple silicon and Intel · <a href="https://github.com/dylenq/macos-parametric-eq">Source on GitHub</a></p>
+  <p class="meta">Version 0.5.0 · macOS 14.2 or later · Apple silicon and Intel · <a href="https://github.com/dylenq/macos-parametric-eq">Source on GitHub</a></p>
 </header>
 
 <main>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="screenshot-dark.png">
-    <img src="screenshot-light.png" width="1720" height="1280"
-      alt="EQ for macOS showing a frequency response curve with five draggable bands, a preamp slider and a band list">
+    <img src="screenshot-light.png" width="1840" height="1280"
+      alt="EQ for macOS showing a frequency response curve with five draggable bands, a preset menu, a preamp slider, a band list and bass, treble and balance controls">
   </picture>
 
   <p>EQ applies a parametric equalizer to all system audio on your Mac, on speakers or headphones. Shape the sound by dragging points on a frequency-response curve, the way you would in a studio EQ plugin, and hear the change immediately.</p>
@@ -133,6 +136,9 @@ footer { color: var(--muted); font-size: 14px; padding-top: 48px; padding-bottom
     <div><h3>System-wide</h3><p>One EQ for everything the Mac plays, with no per-app setup.</p></div>
     <div><h3>Fully parametric</h3><p>Up to 16 bands, each with its own frequency (20 Hz to 20 kHz), gain (±24 dB) and Q.</p></div>
     <div><h3>Five filter types</h3><p>Peak, low shelf, high shelf, low pass and high pass.</p></div>
+    <div><h3>Graphic mode too</h3><p>5, 10, 15 or 31 sliders at the standard frequencies, joined by a smooth curve.</p></div>
+    <div><h3>Bass, treble and balance</h3><p>Tone shelves at 100 Hz and 10 kHz and a left/right balance, in both modes.</p></div>
+    <div><h3>Presets</h3><p>Flat, Bass, Treble and Vocal built in, and your own saved by name. Applying one can be undone.</p></div>
     <div><h3>AutoEq headphone presets</h3><p>Import a headphone correction from AutoEq, or any Equalizer APO ParametricEQ.txt file.</p></div>
     <div><h3>A curve for each output</h3><p>Speakers and headphones each remember their own EQ and get it back when you switch.</p></div>
     <div><h3>Clip protection</h3><p>A built-in limiter keeps heavy boosts from distorting. On by default.</p></div>
@@ -146,7 +152,7 @@ footer { color: var(--muted); font-size: 14px; padding-top: 48px; padding-bottom
     <li>Download <code>EQ.zip</code> from the <a href="https://github.com/dylenq/macos-parametric-eq/releases/latest">latest release</a> and unzip it.</li>
     <li>Move <code>EQ.app</code> to Applications and open it.</li>
     <li>The app is not notarized by Apple, so macOS blocks the first launch. Open <b>System Settings › Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b>.</li>
-    <li>Allow system audio capture when macOS asks.</li>
+    <li>Allow system audio capture when macOS asks. If you hear nothing, enable EQ under <b>System Settings › Privacy &amp; Security › Screen &amp; System Audio Recording</b>.</li>
   </ol>
 
   <h2>Frequently asked questions</h2>

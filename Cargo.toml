@@ -28,3 +28,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.152"
 tray-icon = { version = "0.26.1", default-features = false }
 
+[dev-dependencies]
+# Renders the window offscreen for the screenshots in docs/ (src/ui/screenshots.rs).
+egui_kittest = { version = "0.36.2", features = ["wgpu"] }
+image = { version = "0.25", default-features = false, features = ["png"] }

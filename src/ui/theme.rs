@@ -119,6 +119,22 @@ pub fn palette(ui: &Ui) -> Palette {
 
 /// Applies the system font and both appearances. The window follows the system setting.
 pub fn install(ctx: &Context) {
+    install_font(ctx);
+    if !sync_accent(ctx) {
+        apply_styles(ctx);
+    }
+}
+
+/// As `install`, but with the default blue accent rather than the one chosen in System
+/// Settings, for pictures that come out the same on every Mac.
+#[cfg(test)]
+pub fn install_default_accent(ctx: &Context) {
+    SYSTEM_ACCENT.store(0, Ordering::Relaxed);
+    install_font(ctx);
+    apply_styles(ctx);
+}
+
+fn install_font(ctx: &Context) {
     if let Ok(bytes) = std::fs::read(SYSTEM_FONT) {
         let mut fonts = FontDefinitions::default();
         fonts
@@ -130,9 +146,6 @@ pub fn install(ctx: &Context) {
             .or_default()
             .insert(0, "system".into());
         ctx.set_fonts(fonts);
-    }
-    if !sync_accent(ctx) {
-        apply_styles(ctx);
     }
 }
 

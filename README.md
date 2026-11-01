@@ -16,7 +16,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
-  <img src="docs/screenshot-light.png" alt="EQ, a system-wide parametric equalizer for macOS, showing a frequency response curve with five draggable bands, a preamp slider and a band list">
+  <img src="docs/screenshot-light.png" alt="EQ, a system-wide parametric equalizer for macOS, showing a frequency response curve with five draggable bands, a preset menu, a preamp slider, a band list and bass, treble and balance controls">
 </picture>
 
 EQ applies a parametric equalizer to all system audio on macOS: music apps, browsers,
@@ -49,7 +49,8 @@ output device and volume keys keep working as usual.
 - **A curve for each output.** Speakers and headphones each remember their own EQ and get
   it back when you switch to them. Turn this off under Equalizer to use one curve everywhere.
 - **AutoEq import.** Load a headphone correction from [AutoEq](https://autoeq.app), or any
-  Equalizer APO `ParametricEQ.txt` file, as a preset.
+  Equalizer APO `ParametricEQ.txt` file, as a preset. Importing never replaces a preset you
+  already have: a name in use gets a number.
 - **Stays in the menu bar.** Close the window and the EQ keeps running. Switch presets or
   bypass it from the menu bar item, and optionally open it at login.
 - **Clip protection.** A limiter turns the output down for a moment when boosts would
@@ -61,15 +62,22 @@ output device and volume keys keep working as usual.
 - **Bypass.** Switch the EQ off and on (⌘B) to compare with the original sound.
 - **Undo and redo.** Every edit can be undone, including Reset, Remove All and applying a
   preset, and messages about them offer Undo right there.
-- **Follows your output.** Switching between speakers and headphones keeps the EQ running.
+- **Follows your output.** Switching between speakers and headphones keeps the EQ running,
+  on the speaker pair your interface is set to use in Audio MIDI Setup.
 - **Native feel.** Light and dark appearance, your system accent color, and a full menu bar.
 - **Private.** Audio is processed on your Mac and never leaves it. The app makes no
   network connections.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-graphic-dark.png">
+  <img src="docs/screenshot-graphic-light.png" alt="EQ in graphic mode, with the built-in Vocal preset on ten sliders">
+</picture>
 
 ## Install
 
 1. Download `EQ.zip` from the
    [latest release](https://github.com/dylenq/macos-parametric-eq/releases/latest) and unzip it.
+   Each release comes with `EQ.zip.sha256`; `shasum -a 256 EQ.zip` should print the same checksum.
 2. Move `EQ.app` to Applications and open it.
 3. The app is not notarized by Apple, so macOS blocks the first launch. Open
    **System Settings > Privacy & Security**, scroll down, and click **Open Anyway**.
@@ -87,7 +95,7 @@ normal audio immediately.
 | Change Q (bandwidth) | Scroll or pinch over the point |
 | Add a band | Double-click empty space on the curve, or press ⌘N |
 | Change filter type, disable or delete a band | Right-click the point |
-| Type exact values | Use the band list under the curve; "1.5k" and "-3 dB" work too |
+| Type exact values | Use the band list under the curve; "1.5k", "-3 dB" and "0,7" work too |
 | Nudge the selected band | ←/→ moves it a twelfth of an octave, ↑/↓ half a dB, ⌥↑/⌥↓ changes Q |
 | Switch between parametric and graphic | ⌘1, ⌘2, or the buttons above the bands |
 | Reset a slider, bass, treble, balance or the preamp | Double-click it |
@@ -98,6 +106,31 @@ normal audio immediately.
 | Import an AutoEq file | **Presets > Import…**, or drop the `.txt` file on the window |
 | Keep EQ running out of sight | Close the window; reopen it from the menu bar item or the Dock |
 | Start EQ when you log in | **EQ > Open at Login** |
+
+## Troubleshooting
+
+**The status says "Waiting for audio…".** EQ starts processing when something plays. If
+something is playing and it still waits, EQ has not been allowed to capture audio: enable
+it under **System Settings > Privacy & Security > Screen & System Audio Recording**.
+
+**The status says EQ can't process the output's format.** The output is passing encoded
+audio (such as Dolby Digital) through to a receiver. Switch passthrough off, or pick a
+PCM format for the device in Audio MIDI Setup.
+
+**"Could not start audio processing".** The message says why, for instance when another
+app has exclusive use of the output. EQ tries again on its own, less often each time, and
+at once when you switch outputs.
+
+**EQ started with default settings.** Settings saved by a newer version of EQ, or a
+damaged settings file, are moved aside to `state.unreadable.json` in
+`~/Library/Application Support/eq/` instead of being overwritten, and EQ says so.
+
+**Something else.** Run this in Terminal and include the output in a bug report. It only
+reads: it starts no audio and changes nothing.
+
+```sh
+/Applications/EQ.app/Contents/MacOS/eq --status
+```
 
 ## FAQ
 
@@ -121,43 +154,139 @@ The source is here if you would rather build it yourself.
 Find your headphones on [autoeq.app](https://autoeq.app), choose "EqualizerAPO
 ParametricEq" as the equalizer app, and download the file. Import it with
 **Presets > Import…**. Up to 16 filters are used; peak, shelf and pass filters are
-supported.
+supported, with Q or a bandwidth in octaves.
 
 **How do I uninstall it?**
 Turn off **EQ > Open at Login** if you enabled it, quit the app and delete `EQ.app`.
-Settings live in `~/Library/Application Support/eq/state.json`. No drivers or background
-services are installed.
+Settings live in `~/Library/Application Support/eq/`. No drivers or background services
+are installed.
 
 ## How it works
 
 EQ creates a Core Audio process tap of all system audio except its own, muting the
 original at the hardware while it is being read. A private aggregate device pairs the tap
 with your real output device, and a single IOProc runs the audio through a cascade of
-biquad filters (RBJ Audio EQ Cookbook designs) on its way to the speakers. In graphic
-mode the sliders describe a smooth curve, and the gains of one peak filter per slider
-(plus a shelf beyond each end) are solved for together so that the filters follow it. Parameter
-changes reach the audio thread through a lock-free queue and are smoothed to avoid clicks.
+biquad filters (RBJ Audio EQ Cookbook designs) on its way to the speakers. The IOProc asks
+for the tap's input only, so that a headset's microphone is not started. In graphic mode the sliders
+describe a smooth curve, and the gains of one peak filter per slider (plus a shelf beyond
+each end) are solved for together so that the filters follow it. Parameter changes reach
+the audio thread through a lock-free queue and are smoothed to avoid clicks.
+
+The audio thread does not allocate, lock or panic into Core Audio. It turns a stray NaN
+from any app into silence instead of letting it stick in the filters, keeps the filter
+state out of the subnormal numbers that slow Intel processors down, and leaves alone an
+output whose format is not 32-bit float.
 
 It is written in Rust, with [egui](https://github.com/emilk/egui) for the interface and
 [objc2](https://github.com/madsmtm/objc2) for Core Audio.
 
-## Build from source
+## Development
 
-You need Xcode's command line tools and Rust (via [rustup](https://rustup.rs)).
+### Requirements
+
+- macOS 14.2 or later.
+- Xcode, or its command line tools. With only the command line tools the app gets the
+  flat icon; Xcode's `actool` builds the layered one macOS 26 shows.
+- Rust 1.95 or later, through [rustup](https://rustup.rs), with both Mac targets:
+
+  ```sh
+  rustup target add aarch64-apple-darwin x86_64-apple-darwin
+  ```
+
+### Build and run
 
 ```sh
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-./scripts/bundle.sh
+./scripts/bundle.sh          # universal build, wrapped and signed in target/EQ.app
 open target/EQ.app
 ```
 
 Run the app from the bundle rather than with `cargo run`: macOS only grants audio
-capture to an app bundle. `./scripts/bundle.sh --zip` also writes `target/EQ.zip`.
+capture to an app bundle. `./scripts/bundle.sh --zip` also writes `target/EQ.zip` and
+`target/EQ.zip.sha256`.
 
 ```sh
-cargo test                                         # DSP, preset, import, undo and layout tests
-target/EQ.app/Contents/MacOS/eq --headless 10      # no window, prints levels
+cargo test                                          # DSP, presets, import, undo, layout
+cargo clippy --all-targets -- -D warnings
+target/EQ.app/Contents/MacOS/eq --status            # output device, format, settings
+target/EQ.app/Contents/MacOS/eq --headless 10       # equalize without a window, print levels
+cargo test --release screenshots -- --ignored       # redraw the screenshots in docs/
 ```
+
+Only one EQ runs at a time, since two would capture each other's output; quit the app
+before trying `--headless`.
+
+### Dependencies
+
+| Crate | Used for |
+| --- | --- |
+| `eframe`, `egui` | The window and everything drawn in it, rendered with wgpu on Metal |
+| `objc2-core-audio`, `objc2-core-audio-types` | The process tap, the aggregate device and the IOProc |
+| `objc2`, `objc2-foundation`, `objc2-core-foundation`, `objc2-app-kit` | Calling Apple's frameworks: accent color, app activation |
+| `objc2-service-management` | Open at Login |
+| `muda`, `tray-icon` | The menu bar and the menu bar item |
+| `rfd` | The Import file panel |
+| `rtrb` | The lock-free queue that hands parameters to the audio thread |
+| `serde`, `serde_json`, `dirs` | Saving settings to `~/Library/Application Support/eq/state.json` |
+| `egui_kittest`, `image` (tests only) | Drawing the window offscreen for the screenshots |
+
+### Configuration
+
+The app reads no environment variables and needs no keys or accounts. Release signing is
+configured for `scripts/bundle.sh` with environment variables, or a `.env` file next to
+`Cargo.toml`, which git ignores. Start from [.env.example](.env.example).
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `EQ_SIGN_IDENTITY` | `-` (ad hoc) | The codesign identity, such as `Developer ID Application: Your Name (TEAMID1234)` |
+| `EQ_NOTARY_PROFILE` | none | A `notarytool` keychain profile; with `--zip`, the zip is notarized and the ticket stapled |
+| `EQ_NOTARY_KEYCHAIN` | login keychain | The keychain holding that profile |
+| `EQ_HARDENED_RUNTIME` | `1` | `0` signs without the hardened runtime, which notarization requires |
+| `MACOSX_DEPLOYMENT_TARGET` | `14.2` | The oldest macOS to build for |
+
+Builds are signed with the hardened runtime, which keeps other code from being loaded into
+an app that can record system audio, and with the one entitlement it needs for that
+(`bundle/EQ.entitlements`).
+
+### Layout
+
+```
+src/main.rs           command line, single-instance lock, window setup
+src/app.rs            the app: engine lifecycle, menus, saving, undo, messages
+src/state.rs          settings, presets and per-device curves, loading and saving
+src/history.rs        undo and redo
+src/import.rs         the Equalizer APO / AutoEq reader
+src/audio/            the tap, the aggregate device, device queries and the IOProc
+src/dsp/              biquads, the smoothed filter chain and limiter, the graphic EQ fit
+src/ui/               the window: top bar, curve, band list, sliders, preset sheets, theme
+src/menu.rs, tray.rs  the menu bar and the menu bar item
+scripts/bundle.sh     builds, signs, notarizes and zips the app
+bundle/               Info.plist, entitlements and icons
+docs/                 the website, served by GitHub Pages
+```
+
+## Releasing
+
+1. Set the version in `Cargo.toml` and in `bundle/Info.plist` (`CFBundleShortVersionString`,
+   and raise `CFBundleVersion`), and on the website in `docs/index.html`.
+2. Commit, then tag and push the tag: `git tag v0.6.0 && git push origin v0.6.0`.
+3. The [release workflow](.github/workflows/release.yml) checks that the tag matches both
+   versions, builds `EQ.zip`, and attaches it with its checksum to a draft release, to
+   review and publish.
+
+Without signing secrets the release is signed ad hoc, as before. To sign it with a
+Developer ID and notarize it, so that Gatekeeper opens it without a warning, add these
+repository secrets:
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE` | The Developer ID Application certificate exported as .p12, in base64 (`base64 -i cert.p12`) |
+| `MACOS_CERTIFICATE_PASSWORD` | That .p12's password |
+| `MACOS_SIGN_IDENTITY` | The identity's name, as above |
+| `APPLE_ID`, `APPLE_TEAM_ID` | The Apple ID and team that notarize |
+| `APPLE_APP_PASSWORD` | An app-specific password for that Apple ID |
+
+The [CI workflow](.github/workflows/ci.yml) runs clippy, the tests and a bundle on every
+pull request and push to `main`. Dependabot proposes patch updates monthly.
 
 ## License
 

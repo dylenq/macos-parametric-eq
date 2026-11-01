@@ -2,6 +2,8 @@ pub mod controls;
 pub mod curve;
 pub mod graphic;
 pub mod presets;
+#[cfg(test)]
+mod screenshots;
 pub mod theme;
 
 use crate::state::Settings;
