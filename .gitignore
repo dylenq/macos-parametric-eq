@@ -1,2 +1,5 @@
 /target
 .DS_Store
+# Local signing settings (see .env.example), and certificates exported for CI.
+.env
+*.p12
