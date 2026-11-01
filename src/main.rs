@@ -104,7 +104,8 @@ fn status() -> Result<(), String> {
         None => problems.push("the output's sample rate can't be read"),
     }
     let formats = devices::output_formats(device);
-    let channels: usize = formats.iter().map(|f| f.mChannelsPerFrame as usize).sum();
+    let streams: Vec<usize> = formats.iter().map(|f| f.mChannelsPerFrame as usize).collect();
+    let channels: usize = streams.iter().sum();
     let float = formats.iter().all(devices::is_float32);
     println!(
         "format: {} stream(s), {channels} channel(s), {}",
@@ -119,6 +120,9 @@ fn status() -> Result<(), String> {
         Some(right) => println!("speakers: channels {} and {}", left + 1, right + 1),
         None => println!("speakers: channel {} (mono)", left + 1),
     }
+    // The stream EQ taps, numbered from 1 here.
+    let stream = devices::stream_of_channel(&streams, left).unwrap_or(0);
+    println!("tapped: stream {} of {}", stream + 1, streams.len().max(1));
     match problems.is_empty() {
         true => Ok(()),
         false => Err(problems.join("; ")),

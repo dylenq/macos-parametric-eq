@@ -30,7 +30,8 @@ output device and volume keys keep working as usual.
 
 ## Features
 
-- **System-wide.** One EQ for everything the Mac plays, with no per-app setup.
+- **System-wide.** One EQ for everything the Mac plays on your output, with no per-app
+  setup. Apps you send to another device play there untouched.
 - **Fully parametric.** Up to 16 bands, each with its own frequency (20 Hz to 20 kHz),
   gain (±24 dB) and Q.
 - **Five filter types.** Peak, low shelf, high shelf, low pass and high pass.
@@ -156,6 +157,10 @@ ParametricEq" as the equalizer app, and download the file. Import it with
 **Presets > Import…**. Up to 16 filters are used; peak, shelf and pass filters are
 supported, with Q or a bandwidth in octaves.
 
+**Does EQ change apps I send to another output?**
+No. EQ equalizes what plays on your current output. An app you route to another device,
+such as a call on a headset while music plays on the speakers, plays there untouched.
+
 **How do I uninstall it?**
 Turn off **EQ > Open at Login** if you enabled it, quit the app and delete `EQ.app`.
 Settings live in `~/Library/Application Support/eq/`. No drivers or background services
@@ -163,14 +168,15 @@ are installed.
 
 ## How it works
 
-EQ creates a Core Audio process tap of all system audio except its own, muting the
-original at the hardware while it is being read. A private aggregate device pairs the tap
-with your real output device, and a single IOProc runs the audio through a cascade of
+EQ creates a Core Audio process tap of what plays on your output device, except its own
+sound, mixed to stereo, and mutes the original on that device while it is being read.
+Audio that apps send to other devices is not tapped. A private aggregate device pairs the
+tap with your real output device, and a single IOProc runs the audio through a cascade of
 biquad filters (RBJ Audio EQ Cookbook designs) on its way to the speakers. The IOProc asks
-for the tap's input only, so that a headset's microphone is not started. In graphic mode the sliders
-describe a smooth curve, and the gains of one peak filter per slider (plus a shelf beyond
-each end) are solved for together so that the filters follow it. Parameter changes reach
-the audio thread through a lock-free queue and are smoothed to avoid clicks.
+for the tap's input only, so that a headset's microphone is not started. In graphic mode
+the sliders describe a smooth curve, and the gains of one peak filter per slider (plus a
+shelf beyond each end) are solved for together so that the filters follow it. Parameter
+changes reach the audio thread through a lock-free queue and are smoothed to avoid clicks.
 
 The audio thread does not allocate, lock or panic into Core Audio. It turns a stray NaN
 from any app into silence instead of letting it stick in the filters, keeps the filter

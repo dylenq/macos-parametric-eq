@@ -79,23 +79,27 @@ impl Engine {
     ) -> Result<Engine, String> {
         let output_uid =
             devices::device_uid(output_device).ok_or("Could not read the output device")?;
-        let tap = Tap::new()?;
-        let aggregate = Aggregate::new(&output_uid, &tap)?;
-        let sample_rate = devices::sample_rate(aggregate.id)
-            .or_else(|| devices::sample_rate(output_device))
-            .ok_or("Could not read the output sample rate")?;
 
         // The IOProc writes 32-bit floats. Written into an output passing encoded audio
         // through, they would play as loud noise, so such an output is left alone. If the
         // formats cannot be read at all, the output is assumed to be the usual float one.
-        let formats = devices::output_formats(aggregate.id);
+        // The aggregate's output streams are the device's own, in the same order.
+        let formats = devices::output_formats(output_device);
         if !formats.iter().all(devices::is_float32) {
             return Err("EQ can't process this output's audio format. If it passes encoded \
                         audio through to a receiver, switch that off in Audio MIDI Setup."
                 .into());
         }
-        let channels = formats.iter().map(|f| f.mChannelsPerFrame as usize).sum();
-        let (left, right) = devices::speaker_channels(devices::stereo_channels(output_device), channels);
+        let streams: Vec<usize> = formats.iter().map(|f| f.mChannelsPerFrame as usize).collect();
+        let (left, right) = devices::speaker_channels(devices::stereo_channels(output_device), streams.iter().sum());
+
+        // Only what plays on the stream with the speakers is tapped, and muted: apps playing
+        // to other devices, such as a call on a headset, are left where they are.
+        let tap = Tap::new(&output_uid, devices::stream_of_channel(&streams, left).unwrap_or(0))?;
+        let aggregate = Aggregate::new(&output_uid, &tap)?;
+        let sample_rate = devices::sample_rate(aggregate.id)
+            .or_else(|| devices::sample_rate(output_device))
+            .ok_or("Could not read the output sample rate")?;
 
         let (producer, consumer) = rtrb::RingBuffer::new(32);
         let meters = Arc::new(Meters::default());

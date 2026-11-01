@@ -205,6 +205,19 @@ pub fn speaker_channels(preferred: Option<[u32; 2]>, channels: usize) -> (usize,
     (0, (channels != 1).then_some(1))
 }
 
+/// Which output stream, counted from 0, carries output channel `channel` (counted from 0
+/// across the streams in order), given how many channels each stream has.
+pub fn stream_of_channel(streams: &[usize], channel: usize) -> Option<usize> {
+    let mut first = 0;
+    for (index, &count) in streams.iter().enumerate() {
+        if channel < first + count {
+            return Some(index);
+        }
+        first += count;
+    }
+    None
+}
+
 /// The process object for this process, used to keep our own output out of the tap.
 pub fn own_process_object() -> Option<AudioObjectID> {
     let pid = std::process::id() as i32;
@@ -245,6 +258,17 @@ mod tests {
         // A mono device, and a device whose channels could not be counted.
         assert_eq!(speaker_channels(Some([1, 2]), 1), (0, None));
         assert_eq!(speaker_channels(None, 0), (0, Some(1)));
+    }
+
+    #[test]
+    fn the_tapped_stream_is_the_one_with_the_speakers() {
+        assert_eq!(stream_of_channel(&[2], 0), Some(0));
+        assert_eq!(stream_of_channel(&[8], 3), Some(0));
+        // An interface with two stereo streams, its speakers on channels 3 and 4.
+        assert_eq!(stream_of_channel(&[2, 2], 2), Some(1));
+        assert_eq!(stream_of_channel(&[2, 2], 1), Some(0));
+        assert_eq!(stream_of_channel(&[2], 2), None);
+        assert_eq!(stream_of_channel(&[], 0), None);
     }
 
     #[test]
