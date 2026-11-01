@@ -1,6 +1,9 @@
 use super::presets;
 use super::theme::{self, Palette};
-use super::{Requests, format_balance, format_gain, graphic, parse_freq, parse_gain};
+use super::{
+    FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, format_balance, format_gain, graphic, parse_freq,
+    parse_gain,
+};
 use crate::dsp::graphic::COUNTS;
 use crate::dsp::response;
 use crate::state::{
@@ -23,11 +26,8 @@ const METER_WIDTH: f32 = 96.0;
 /// Room kept for the "Clipping" label so the status text does not jump when it appears.
 const CLIPPING_WIDTH: f32 = 52.0;
 const TONE_SLIDER_WIDTH: f32 = 120.0;
-/// Over full scale by less than this still counts as fitting.
-const OVER_THRESHOLD_DB: f32 = 0.05;
 /// The suggested preamp is offered when it differs from the preamp by at least this.
 const SUGGEST_THRESHOLD_DB: f32 = 0.5;
-const FULL_MESSAGE: &str = "All 16 bands are in use. Remove one to add another.";
 
 /// Output level in dB and whether the signal recently exceeded full scale.
 pub struct Level {

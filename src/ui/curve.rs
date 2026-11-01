@@ -1,5 +1,5 @@
 use super::theme::{self, CAPTION, Palette};
-use super::{Requests, format_freq, format_gain, snap_freq, snap_gain};
+use super::{FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, format_freq, format_gain, snap_freq, snap_gain};
 use crate::dsp::response;
 use crate::state::{
     Band, EqState, FilterKind, MAX_BANDS, MAX_FREQ, MAX_GAIN_DB, MAX_Q, MIN_FREQ, MIN_Q, Mode,
@@ -20,8 +20,6 @@ const NODE_RADIUS: f32 = 6.0;
 /// Pointer target around a node, above the 20 pt macOS minimum.
 const NODE_HIT: f32 = 24.0;
 const CURVE_POINTS: usize = 256;
-/// Over full scale by less than this still counts as fitting.
-const OVER_THRESHOLD_DB: f32 = 0.05;
 /// One keyboard nudge: a twelfth of an octave, half a dB, or this factor of Q.
 const NUDGE_Q: f32 = 1.12;
 const GRID_FREQS: [(f32, &str); 10] = [
@@ -315,7 +313,7 @@ fn bands(
             state.bands.push(band);
             *selected = Some(state.bands.len() - 1);
         } else {
-            requests.notice = Some("All 16 bands are in use. Remove one to add another.".into());
+            requests.notice = Some(FULL_MESSAGE.into());
         }
     } else if background.clicked() {
         *selected = None;

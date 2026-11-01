@@ -6,31 +6,42 @@ use crate::history::History;
 use crate::import;
 use crate::login;
 use crate::menu::{AppMenu, Command, MenuState};
-use crate::state::{MAX_BANDS, Mode, Settings};
-use crate::ui::controls::{self, Level, Status};
+use crate::state::{LoadProblem, MAX_BANDS, Mode, Settings};
+use crate::ui::controls::{Level, Status};
 use crate::ui::presets::{self, Dialog, Outcome, PresetAction};
-use crate::ui::{Requests, curve, theme};
-use eframe::egui::{self, CentralPanel, Frame, Margin, Panel, RichText, ViewportCommand};
+use crate::ui::{self, View, theme};
+use eframe::egui::{self, ViewportCommand};
+use objc2_core_audio::AudioObjectID;
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 const DEVICE_POLL: Duration = Duration::from_millis(500);
+/// Frame interval while the meter moves. Otherwise the window wakes at the device poll.
+const METER_FRAME: Duration = Duration::from_millis(50);
 const ACCENT_POLL: Duration = Duration::from_secs(1);
 const SAVE_DELAY: Duration = Duration::from_secs(1);
+/// After a failed save, when to try again.
+const SAVE_RETRY: Duration = Duration::from_secs(10);
+/// Pauses before retrying an output that would not start: the first, doubling to the last.
+const RETRY_FIRST: Duration = Duration::from_secs(1);
+const RETRY_MAX: Duration = Duration::from_secs(60);
 const CLIP_HOLD: Duration = Duration::from_secs(2);
 const SILENCE_HINT_AFTER: Duration = Duration::from_secs(8);
 const NOTICE_HOLD: Duration = Duration::from_secs(6);
+/// How long a message about lost or unsaved settings stays.
+const WARNING_HOLD: Duration = Duration::from_secs(20);
 const DEFAULT_SAMPLE_RATE: f64 = 48_000.0;
-/// Room the lower panel starts with: the mode, bands or sliders, buttons and tone controls.
-const EDITOR_HEIGHT: f32 = 300.0;
 /// Meter fall rate in dB per second.
 const METER_DECAY: f32 = 40.0;
+/// The meter's empty end. Below it there is nothing to animate.
+const METER_FLOOR_DB: f32 = -60.0;
 
-/// A message shown in place of the device for a few seconds.
+/// A message shown in place of the device for a while.
 struct Notice {
     text: String,
     shown: Instant,
+    hold: Duration,
     /// The history serial at which the message's Undo still undoes its edit.
     undo: Option<u64>,
 }
@@ -42,16 +53,36 @@ struct Running {
     device_name: String,
 }
 
+/// An engine start in progress on another thread, and the output it is for. It returns
+/// once something plays, or once the system's audio capture prompt is answered.
+struct Starting {
+    receiver: mpsc::Receiver<Result<Running, String>>,
+    device: AudioObjectID,
+    rate: Option<f64>,
+    since: Instant,
+}
+
+/// The output that last failed, which is retried less and less often until it works or
+/// another output takes over.
+struct Failure {
+    device: AudioObjectID,
+    rate: Option<f64>,
+    count: u32,
+    retry_at: Instant,
+}
+
 pub struct App {
     settings: Settings,
     selected: Option<usize>,
     /// The preset sheet, while one is open.
     dialog: Option<Dialog>,
     running: Option<Running>,
-    /// An engine start in progress on another thread.
-    starting: Option<mpsc::Receiver<Result<Running, String>>>,
+    starting: Option<Starting>,
+    failure: Option<Failure>,
     error: Option<String>,
     notice: Option<Notice>,
+    /// Why the settings could not be loaded, shown once the window is first seen.
+    startup_warning: Option<String>,
     /// A message for an edit made this frame, waiting for the edit to become an undo step.
     undoable: Option<String>,
     /// The Undo next to a message was clicked. It runs with the menu commands, before the
@@ -59,7 +90,10 @@ pub struct App {
     undo_requested: bool,
     /// Parameters the audio thread has not accepted yet.
     unsent: bool,
-    unsaved_since: Option<Instant>,
+    /// When to write the settings, which have changed since they were last saved.
+    save_at: Option<Instant>,
+    /// The last save failed and the user has been told.
+    save_failed: bool,
     last_device_poll: Option<Instant>,
     output_db: f32,
     clipped_at: Option<Instant>,
@@ -81,7 +115,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(ctx: &egui::Context, settings: Settings) -> Self {
+    pub fn new(ctx: &egui::Context, settings: Settings, problem: Option<LoadProblem>) -> Self {
         App {
             hidden: settings.window_hidden,
             // Opening the app by hand puts it in front, which shows the window at once.
@@ -93,12 +127,15 @@ impl App {
             dialog: None,
             running: None,
             starting: None,
+            failure: None,
             error: None,
             notice: None,
+            startup_warning: problem.map(|p| p.to_string()),
             undoable: None,
             undo_requested: false,
             unsent: false,
-            unsaved_since: None,
+            save_at: None,
+            save_failed: false,
             last_device_poll: None,
             output_db: -120.0,
             clipped_at: None,
@@ -120,26 +157,48 @@ impl App {
     }
 
     /// Starts the engine, and restarts it when the default output device or its sample
-    /// rate changes.
+    /// rate changes, or when processing stopped.
     fn follow_output_device(&mut self) {
         self.finish_starting();
-        if self.starting.is_some()
-            || self.last_device_poll.is_some_and(|t| t.elapsed() < DEVICE_POLL)
+        if let Some(running) = &self.running
+            && running.engine.meters.failed()
         {
+            let (device, rate) = (running.engine.output_device, running.device_rate);
+            self.running = None;
+            self.fail(device, rate, "Audio processing stopped unexpectedly".into());
+        }
+        if self.last_device_poll.is_some_and(|t| t.elapsed() < DEVICE_POLL) {
             return;
         }
         self.last_device_poll = Some(Instant::now());
 
         let Some(device) = devices::default_output_device() else {
             self.running = None;
+            self.starting = None;
             self.error = Some("No output device".into());
             return;
         };
         let device_rate = devices::sample_rate(device);
+        // A start waiting for an output that is no longer the default is dropped. Its thread
+        // then cannot hand the engine over, and drops it as soon as the start returns.
+        if let Some(starting) = &self.starting {
+            if starting.device == device && starting.rate == device_rate {
+                return;
+            }
+            self.starting = None;
+        }
         if self
             .running
             .as_ref()
             .is_some_and(|r| r.engine.output_device == device && r.device_rate == device_rate)
+        {
+            return;
+        }
+        // An output that failed is tried again after a pause, not on every poll.
+        if self
+            .failure
+            .as_ref()
+            .is_some_and(|f| f.device == device && f.rate == device_rate && Instant::now() < f.retry_at)
         {
             return;
         }
@@ -156,6 +215,10 @@ impl App {
 
         // The old tap must be gone before a new one mutes the system again.
         self.running = None;
+        // An error stays up while its output is retried, but not for another output.
+        if !self.failure.as_ref().is_some_and(|f| f.device == device && f.rate == device_rate) {
+            self.error = None;
+        }
         // Starting can block for as long as the system's audio capture prompt is open, so
         // it runs off the UI thread and the window stays responsive.
         let (sender, receiver) = mpsc::channel();
@@ -169,26 +232,57 @@ impl App {
                 });
             _ = sender.send(started);
         });
-        self.starting = Some(receiver);
+        self.starting = Some(Starting {
+            receiver,
+            device,
+            rate: device_rate,
+            since: Instant::now(),
+        });
     }
 
     fn finish_starting(&mut self) {
-        let Some(result) = self.starting.as_ref().and_then(|r| r.try_recv().ok()) else {
+        let Some(starting) = &self.starting else {
             return;
         };
-        self.starting = None;
+        let result = match starting.receiver.try_recv() {
+            Ok(result) => result,
+            Err(mpsc::TryRecvError::Empty) => return,
+            // The thread ended without an answer, which only a panic does.
+            Err(mpsc::TryRecvError::Disconnected) => Err("Could not start audio processing".into()),
+        };
+        let Some(Starting { device, rate, .. }) = self.starting.take() else {
+            return;
+        };
         match result {
             Ok(running) => {
                 self.running = Some(running);
                 self.error = None;
+                self.failure = None;
                 // The bands may have changed while the engine was starting.
                 self.unsent = true;
                 if !self.heard_audio {
                     self.waiting_for_audio.get_or_insert_with(Instant::now);
                 }
             }
-            Err(error) => self.error = Some(error),
+            Err(error) => self.fail(device, rate, error),
         }
+    }
+
+    /// Shows why the output could not be used, and sets when to try it again.
+    fn fail(&mut self, device: AudioObjectID, rate: Option<f64>, error: String) {
+        let count = self
+            .failure
+            .as_ref()
+            .filter(|f| f.device == device && f.rate == rate)
+            .map_or(1, |f| f.count + 1);
+        let delay = RETRY_FIRST.saturating_mul(1 << (count - 1).min(6)).min(RETRY_MAX);
+        self.failure = Some(Failure {
+            device,
+            rate,
+            count,
+            retry_at: Instant::now() + delay,
+        });
+        self.error = Some(error);
     }
 
     fn read_meters(&mut self, dt: f32) {
@@ -209,7 +303,7 @@ impl App {
 
     fn status(&self) -> Status {
         if let Some(notice) = &self.notice
-            && notice.shown.elapsed() < NOTICE_HOLD
+            && notice.shown.elapsed() < notice.hold
         {
             // Undo is offered only while nothing else has been done since.
             let undo = notice.undo.is_some_and(|serial| {
@@ -223,15 +317,21 @@ impl App {
         let text = match (&self.running, &self.error) {
             (Some(r), _) => format!("{} · {:.1} kHz", r.device_name, r.engine.sample_rate / 1000.0),
             (None, Some(error)) => error.clone(),
-            (None, None) => "Waiting for audio access…".into(),
+            // Waiting for something to play, or for the audio capture prompt to be answered.
+            (None, None) => "Waiting for audio…".into(),
         };
         Status { text, undo: false }
     }
 
     fn notify(&mut self, text: impl Into<String>) {
+        self.notify_for(text, NOTICE_HOLD);
+    }
+
+    fn notify_for(&mut self, text: impl Into<String>, hold: Duration) {
         self.notice = Some(Notice {
             text: text.into(),
             shown: Instant::now(),
+            hold,
             undo: None,
         });
     }
@@ -243,14 +343,14 @@ impl App {
             let params = ChainParams::from_state(&self.settings.eq, running.engine.sample_rate);
             self.unsent = !running.engine.send(params);
         }
-        if self.unsaved_since.is_some_and(|t| t.elapsed() >= SAVE_DELAY) {
+        if self.save_at.is_some_and(|t| Instant::now() >= t) {
             self.save();
         }
     }
 
     fn mark_changed(&mut self) {
         self.unsent = true;
-        self.unsaved_since = Some(Instant::now());
+        self.save_at = Some(Instant::now() + SAVE_DELAY);
     }
 
     fn preset_action(&mut self, action: PresetAction) {
@@ -354,6 +454,11 @@ impl App {
             self.notify(format!("Could not change Open at Login: {error}"));
         }
         self.open_at_login = login::enabled();
+        // macOS may hold a new login item until the user allows it.
+        if self.open_at_login && login::needs_approval() {
+            self.notify_for("To open EQ at login, allow it under Login Items in System Settings", WARNING_HOLD);
+            login::open_settings();
+        }
     }
 
     /// Runs what was chosen from the menus since the last call. A drag in the window can
@@ -362,6 +467,14 @@ impl App {
         let mut commands = self.menu.as_mut().map(AppMenu::take_commands).unwrap_or_default();
         if std::mem::take(&mut self.undo_requested) {
             commands.insert(0, Command::Undo);
+        }
+        if commands.is_empty() {
+            // Nothing can have changed, but a gesture that ended still ends its undo step.
+            if !gesture_active {
+                self.history.commit();
+            }
+            self.push_changes();
+            return;
         }
         // Undo and redo replace the state outright, so they are not themselves recorded.
         for command in &commands {
@@ -459,18 +572,19 @@ impl App {
             self.notice = Some(Notice {
                 text,
                 shown: Instant::now(),
+                hold: NOTICE_HOLD,
                 undo,
             });
         }
         self.push_changes();
     }
 
-    fn sync_menu(&mut self) {
+    fn sync_menu(&mut self, ctx: &egui::Context) {
         let Some(menu) = &mut self.menu else {
             return;
         };
-        // While a sheet is open, ⌘Z belongs to its text field.
-        let no_sheet = self.dialog.is_none();
+        // While a sheet is open or a value is being typed, ⌘Z belongs to the text field.
+        let no_sheet = self.dialog.is_none() && !ctx.egui_wants_keyboard_input();
         let eq = &self.settings.eq;
         let parametric = eq.mode == Mode::Parametric;
         let own = presets::active_user_preset(&self.settings);
@@ -492,11 +606,26 @@ impl App {
         });
     }
 
+    /// Writes the settings if they have changed. A failed save is retried later, and
+    /// reported once rather than on every attempt.
     fn save(&mut self) {
-        if self.unsaved_since.take().is_some()
-            && let Err(error) = self.settings.save()
-        {
-            eprintln!("could not save settings: {error}");
+        if self.save_at.is_none() {
+            return;
+        }
+        match self.settings.save() {
+            Ok(()) => {
+                self.save_at = None;
+                if std::mem::take(&mut self.save_failed) {
+                    self.notify("Settings saved");
+                }
+            }
+            Err(error) => {
+                eprintln!("could not save settings: {error}");
+                self.save_at = Some(Instant::now() + SAVE_RETRY);
+                if !std::mem::replace(&mut self.save_failed, true) {
+                    self.notify_for(format!("Could not save settings: {error}"), WARNING_HOLD);
+                }
+            }
         }
     }
 }
@@ -518,9 +647,11 @@ impl eframe::App for App {
         }
         let pointer_down = !self.hidden && ctx.input(|i| i.pointer.any_down());
         self.run_commands(ctx, pointer_down);
-        self.sync_menu();
-        // Keeps the meter moving and the device poll running while idle.
-        ctx.request_repaint_after(Duration::from_millis(50));
+        self.sync_menu(ctx);
+        // A moving meter needs a steady frame rate. Otherwise only the device poll and the
+        // timed messages need waking for: input and menu choices wake the app themselves.
+        let meter_moving = !self.hidden && self.output_db > METER_FLOOR_DB;
+        ctx.request_repaint_after(if meter_moving { METER_FRAME } else { DEVICE_POLL });
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -533,72 +664,37 @@ impl eframe::App for App {
             ui.ctx().send_viewport_cmd(ViewportCommand::CancelClose);
             self.hide_window(ui.ctx());
         }
-
-        let before = self.settings.clone();
-        let dropped = ui.input(|i| i.raw.dropped_files.clone());
-        for file in &dropped {
-            self.import(file.path());
+        // Shown once the window is first seen, which at login may be much later.
+        if let Some(text) = self.startup_warning.take() {
+            self.notify_for(text, WARNING_HOLD);
         }
 
-        let level = Level {
-            output_db: self.output_db,
-            clipped: self.clipped_at.is_some_and(|t| t.elapsed() < CLIP_HOLD),
-        };
-        let status = self.status();
-        let silent = self.running.is_some()
-            && self.waiting_for_audio.is_some_and(|t| t.elapsed() > SILENCE_HINT_AFTER);
-        let sample_rate = self.sample_rate();
+        let before = self.settings.clone();
+        // A file dropped while a sheet is open would change the presets under it.
+        let dropped = ui.input(|i| i.raw.dropped_files.clone());
+        if self.dialog.is_none() {
+            for file in &dropped {
+                self.import(file.path());
+            }
+        }
 
-        let mut requests = Requests::default();
-        let p = &theme::palette(ui);
-        let panel = |margin: Margin| Frame::new().fill(p.window).inner_margin(margin);
-        // The top margin clears the transparent title bar and its window buttons.
-        Panel::top("top")
-            .frame(panel(Margin { left: 16, right: 16, top: 38, bottom: 10 }))
-            .show_separator_line(false)
-            .show(ui, |ui| {
-                controls::top_bar(
-                    ui,
-                    &mut self.settings,
-                    &level,
-                    &status,
-                    sample_rate,
-                    &mut requests,
-                );
-                if silent {
-                    ui.label(
-                        RichText::new(
-                            "No audio detected. If something is playing, allow EQ in System \
-                             Settings > Privacy & Security > Screen & System Audio Recording.",
-                        )
-                        .small()
-                        .color(p.secondary),
-                    );
-                }
-            });
-        Panel::bottom("bands")
-            .frame(panel(Margin { left: 8, right: 16, top: 8, bottom: 12 }))
-            .show_separator_line(false)
-            .resizable(true)
-            .default_size(EDITOR_HEIGHT)
-            .min_size(200.0)
-            .show(ui, |ui| {
-                controls::editor(ui, &mut self.settings.eq, &mut self.selected, &mut requests);
-            });
-        CentralPanel::default()
-            .frame(panel(Margin { left: 16, right: 16, top: 4, bottom: 4 }))
-            .show(ui, |ui| {
-                // While a sheet is open, the keyboard belongs to it.
-                let keys = self.dialog.is_none();
-                curve::show(
-                    ui,
-                    &mut self.settings.eq,
-                    &mut self.selected,
-                    sample_rate,
-                    keys,
-                    &mut requests,
-                );
-            });
+        let view = View {
+            level: Level {
+                output_db: self.output_db,
+                clipped: self.clipped_at.is_some_and(|t| t.elapsed() < CLIP_HOLD),
+            },
+            status: self.status(),
+            // Either running without a sound, or still waiting to start since EQ opened,
+            // which is also what a refused audio capture prompt looks like.
+            silent: (self.running.is_some()
+                && self.waiting_for_audio.is_some_and(|t| t.elapsed() > SILENCE_HINT_AFTER))
+                || (!self.heard_audio
+                    && self.starting.as_ref().is_some_and(|s| s.since.elapsed() > SILENCE_HINT_AFTER)),
+            sample_rate: self.sample_rate(),
+            // While a sheet is open, the keyboard belongs to it.
+            keys: self.dialog.is_none(),
+        };
+        let (requests, _) = ui::window(ui, &mut self.settings, &mut self.selected, &view);
 
         if let Some(action) = requests.preset {
             self.preset_action(action);
@@ -624,7 +720,7 @@ impl eframe::App for App {
 
         let pointer_down = ui.input(|i| i.pointer.any_down());
         self.finish_edits(&before, pointer_down);
-        self.sync_menu();
+        self.sync_menu(ui.ctx());
     }
 
     fn on_exit(&mut self) {

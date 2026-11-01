@@ -1,5 +1,5 @@
 use super::theme;
-use crate::state::{MAX_PRESET_NAME, PresetError, Settings, builtins, check_name};
+use crate::state::{MAX_PRESET_NAME, PresetError, Settings, builtins, check_name, same_name};
 use eframe::egui::{Align, ComboBox, Context, Id, Key, Layout, Modal, RichText, TextEdit, Ui};
 
 const PICKER_WIDTH: f32 = 140.0;
@@ -157,7 +157,7 @@ impl Dialog {
             return (Ok(()), false);
         };
         let name = match check_name(&self.name) {
-            Ok(name) => name.to_lowercase(),
+            Ok(name) => name,
             Err(error) => return (Err(error), false),
         };
         let skip = match self.kind {
@@ -167,7 +167,7 @@ impl Dialog {
         let clash = settings
             .all_presets()
             .enumerate()
-            .find(|(i, p)| Some(*i) != skip && p.name.trim().to_lowercase() == name);
+            .find(|(i, p)| Some(*i) != skip && same_name(&p.name, name));
         match (clash, &self.kind) {
             (Some((i, _)), Kind::SaveAs) if !Settings::is_builtin(i) => (Ok(()), true),
             (Some(_), _) => (Err(PresetError::Taken), false),

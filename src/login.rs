@@ -1,8 +1,23 @@
 use objc2_service_management::{SMAppService, SMAppServiceStatus};
 
-/// Whether EQ is set to open when the user logs in.
+fn status() -> SMAppServiceStatus {
+    unsafe { SMAppService::mainAppService().status() }
+}
+
+/// Whether EQ is set to open when the user logs in, counting a login item that macOS holds
+/// until the user allows it.
 pub fn enabled() -> bool {
-    unsafe { SMAppService::mainAppService().status() == SMAppServiceStatus::Enabled }
+    matches!(status(), SMAppServiceStatus::Enabled | SMAppServiceStatus::RequiresApproval)
+}
+
+/// True if EQ will open at login only once the user allows it in System Settings.
+pub fn needs_approval() -> bool {
+    status() == SMAppServiceStatus::RequiresApproval
+}
+
+/// Opens Login Items in System Settings, where the user allows EQ to open at login.
+pub fn open_settings() {
+    unsafe { SMAppService::openSystemSettingsLoginItems() };
 }
 
 /// Adds EQ to, or removes it from, the Login Items in System Settings.

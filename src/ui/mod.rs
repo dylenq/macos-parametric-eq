@@ -4,7 +4,16 @@ pub mod graphic;
 pub mod presets;
 pub mod theme;
 
+use crate::state::Settings;
+use controls::{Level, Status};
+use eframe::egui::{CentralPanel, Frame, Margin, Panel, Rect, RichText, Ui};
 use presets::PresetAction;
+
+/// Room the lower panel starts with: the mode, bands or sliders, buttons and tone controls.
+const EDITOR_HEIGHT: f32 = 300.0;
+/// Over full scale by less than this still counts as fitting.
+const OVER_THRESHOLD_DB: f32 = 0.05;
+const FULL_MESSAGE: &str = "All 16 bands are in use. Remove one to add another.";
 
 /// What the window asks of the app during a frame, besides direct edits to the settings.
 #[derive(Default)]
@@ -16,6 +25,60 @@ pub struct Requests {
     pub undoable: Option<String>,
     /// The Undo next to a message was clicked.
     pub undo: bool,
+}
+
+/// What the window shows besides the settings it edits.
+pub struct View {
+    pub level: Level,
+    pub status: Status,
+    /// Nothing has come through the tap for a while, so the window says how to allow it.
+    pub silent: bool,
+    /// The rate the curve is drawn for.
+    pub sample_rate: f64,
+    /// The curve takes the arrow keys, unless a sheet needs them.
+    pub keys: bool,
+}
+
+/// Lays out the window: the top bar, the curve, and the bands or sliders under it. Returns
+/// what was asked of the app, and the rect the curve was given.
+pub fn window(ui: &mut Ui, settings: &mut Settings, selected: &mut Option<usize>, view: &View) -> (Requests, Rect) {
+    let mut requests = Requests::default();
+    let p = &theme::palette(ui);
+    let panel = |margin: Margin| Frame::new().fill(p.window).inner_margin(margin);
+    // The top margin clears the transparent title bar and its window buttons.
+    Panel::top("top")
+        .frame(panel(Margin { left: 16, right: 16, top: 38, bottom: 10 }))
+        .show_separator_line(false)
+        .show(ui, |ui| {
+            controls::top_bar(ui, settings, &view.level, &view.status, view.sample_rate, &mut requests);
+            if view.silent {
+                ui.label(
+                    RichText::new(
+                        "No audio detected. If something is playing, allow EQ in System \
+                         Settings > Privacy & Security > Screen & System Audio Recording.",
+                    )
+                    .small()
+                    .color(p.secondary),
+                );
+            }
+        });
+    Panel::bottom("bands")
+        .frame(panel(Margin { left: 8, right: 16, top: 8, bottom: 12 }))
+        .show_separator_line(false)
+        .resizable(true)
+        .default_size(EDITOR_HEIGHT)
+        .min_size(200.0)
+        .show(ui, |ui| {
+            controls::editor(ui, &mut settings.eq, selected, &mut requests);
+        });
+    let curve = CentralPanel::default()
+        .frame(panel(Margin { left: 16, right: 16, top: 4, bottom: 4 }))
+        .show(ui, |ui| {
+            curve::show(ui, &mut settings.eq, selected, view.sample_rate, view.keys, &mut requests);
+        })
+        .response
+        .rect;
+    (requests, curve)
 }
 
 /// "80 Hz", "1.2 kHz".
@@ -83,15 +146,17 @@ pub fn snap_gain(db: f32) -> f32 {
 }
 
 /// A number as people type it: spaces ignored, a true minus or a hyphen, and a comma read
-/// as a thousands separator before three digits ("1,500") and otherwise as a decimal
-/// point ("1,5").
-fn number(text: &str) -> Option<f64> {
+/// as a decimal point ("1,5"). With `thousands`, a comma before three digits separates
+/// thousands instead ("1,500"), which only frequencies are large enough to need: a Q of
+/// "0,707" is not 707.
+fn number(text: &str, thousands: bool) -> Option<f64> {
     let text: String = text
         .chars()
         .filter(|c| !c.is_whitespace())
         .map(|c| if c == '\u{2212}' { '-' } else { c })
         .collect();
-    let thousands = !text.contains('.')
+    let thousands = thousands
+        && !text.contains('.')
         && text.contains(',')
         && text.split(',').skip(1).all(|group| group.len() == 3);
     let text = if thousands { text.replace(',', "") } else { text.replace(',', ".") };
@@ -104,15 +169,15 @@ fn number(text: &str) -> Option<f64> {
 pub fn parse_freq(text: &str) -> Option<f64> {
     let text = text.trim().to_lowercase();
     if let Some(khz) = text.strip_suffix("khz").or_else(|| text.strip_suffix('k')) {
-        return number(khz).map(|v| v * 1_000.0);
+        return number(khz, false).map(|v| v * 1_000.0);
     }
-    number(text.strip_suffix("hz").unwrap_or(&text))
+    number(text.strip_suffix("hz").unwrap_or(&text), true)
 }
 
-/// A gain: "-3", "+2.5 dB".
+/// A gain: "-3", "+2.5 dB". Also reads Q, and the other small numbers.
 pub fn parse_gain(text: &str) -> Option<f64> {
     let text = text.trim().to_lowercase();
-    number(text.strip_suffix("db").unwrap_or(&text))
+    number(text.strip_suffix("db").unwrap_or(&text), false)
 }
 
 #[cfg(test)]
@@ -161,15 +226,19 @@ mod tests {
         assert_eq!(parse_gain("\u{2212}3 dB"), Some(-3.0));
         assert_eq!(parse_gain("+2.5"), Some(2.5));
         assert_eq!(parse_gain(""), None);
+        // A decimal comma before three digits is still a decimal comma outside frequencies.
+        assert_eq!(parse_gain("0,707"), Some(0.707));
+        assert_eq!(parse_gain("-2,125 dB"), Some(-2.125));
+        assert_eq!(parse_freq("1,500k"), Some(1_500.0));
     }
 }
 
 #[cfg(test)]
 mod frame_tests {
-    use super::controls::{self, Level, Status};
-    use super::{Requests, curve, presets};
+    use super::controls::{Level, Status};
+    use super::{View, presets};
     use crate::state::{Mode, Settings};
-    use eframe::egui::{self, CentralPanel, Panel, RawInput, Rect, pos2, vec2};
+    use eframe::egui::{self, RawInput, Rect, pos2, vec2};
 
     /// Lays out the whole window for a few frames at a given size, as the app does, and
     /// returns the height the curve was left with.
@@ -185,22 +254,14 @@ mod frame_tests {
                 ..RawInput::default()
             };
             let mut output = ctx.run_ui(input, |ui| {
-                let mut requests = Requests::default();
-                let level = Level { output_db: -12.0, clipped: frame == 1 };
-                let status = Status { text: "Speakers · 48.0 kHz".into(), undo: frame == 2 };
-                Panel::top("top").show(ui, |ui| {
-                    controls::top_bar(ui, settings, &level, &status, 48_000.0, &mut requests);
-                });
-                Panel::bottom("bands").resizable(true).default_size(300.0).min_size(200.0).show(ui, |ui| {
-                    controls::editor(ui, &mut settings.eq, selected, &mut requests);
-                });
-                curve_height = CentralPanel::default()
-                    .show(ui, |ui| {
-                        curve::show(ui, &mut settings.eq, selected, 48_000.0, true, &mut requests);
-                    })
-                    .response
-                    .rect
-                    .height();
+                let view = View {
+                    level: Level { output_db: -12.0, clipped: frame == 1 },
+                    status: Status { text: "Speakers · 48.0 kHz".into(), undo: frame == 2 },
+                    silent: frame == 3,
+                    sample_rate: 48_000.0,
+                    keys: true,
+                };
+                curve_height = super::window(ui, settings, selected, &view).1.height();
             });
             // Nothing draws here, so the font atlas updates are dropped on purpose.
             output.textures_delta.clear();

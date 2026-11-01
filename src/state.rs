@@ -1,7 +1,8 @@
 use crate::dsp::graphic;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 pub const MAX_BANDS: usize = 16;
 pub const MIN_FREQ: f32 = 20.0;
@@ -73,10 +74,16 @@ impl Band {
     }
 
     pub fn clamp(&mut self) {
-        self.freq = self.freq.clamp(MIN_FREQ, MAX_FREQ);
-        self.q = self.q.clamp(MIN_Q, MAX_Q);
-        self.gain_db = self.gain_db.clamp(-MAX_GAIN_DB, MAX_GAIN_DB);
+        self.freq = clamp_finite(self.freq, MIN_FREQ, MAX_FREQ, 1_000.0);
+        self.q = clamp_finite(self.q, MIN_Q, MAX_Q, std::f32::consts::FRAC_1_SQRT_2);
+        self.gain_db = clamp_finite(self.gain_db, -MAX_GAIN_DB, MAX_GAIN_DB, 0.0);
     }
+}
+
+/// `value` clamped into `min..=max`, or `fallback` if it is not a number at all. `f32::clamp`
+/// keeps NaN, which would reach the audio as NaN samples and the file as `null`.
+fn clamp_finite(value: f32, min: f32, max: f32, fallback: f32) -> f32 {
+    if value.is_finite() { value.clamp(min, max) } else { fallback }
 }
 
 /// Which editor shapes the sound. Each keeps its own settings while the other is in use.
@@ -181,7 +188,7 @@ impl Default for EqState {
 
 /// Snaps a balance to centre when it is within a hair of it.
 pub fn snap_balance(balance: f32) -> f32 {
-    let balance = balance.clamp(-1.0, 1.0);
+    let balance = clamp_finite(balance, -1.0, 1.0, 0.0);
     if balance.abs() <= BALANCE_SNAP { 0.0 } else { balance }
 }
 
@@ -253,9 +260,9 @@ impl EqState {
     pub fn clamp(&mut self) {
         self.bands.iter_mut().for_each(Band::clamp);
         self.graphic.sanitize();
-        self.preamp_db = self.preamp_db.clamp(-MAX_GAIN_DB, MAX_GAIN_DB);
-        self.bass_db = self.bass_db.clamp(-SLIDER_MAX_DB, SLIDER_MAX_DB);
-        self.treble_db = self.treble_db.clamp(-SLIDER_MAX_DB, SLIDER_MAX_DB);
+        self.preamp_db = clamp_finite(self.preamp_db, -MAX_GAIN_DB, MAX_GAIN_DB, 0.0);
+        self.bass_db = clamp_finite(self.bass_db, -SLIDER_MAX_DB, SLIDER_MAX_DB, 0.0);
+        self.treble_db = clamp_finite(self.treble_db, -SLIDER_MAX_DB, SLIDER_MAX_DB, 0.0);
         self.balance = snap_balance(self.balance);
     }
 }
@@ -378,8 +385,21 @@ impl std::fmt::Display for PresetError {
 }
 
 /// Names are compared ignoring case and surrounding space.
-fn same_name(a: &str, b: &str) -> bool {
+pub fn same_name(a: &str, b: &str) -> bool {
     a.trim().to_lowercase() == b.trim().to_lowercase()
+}
+
+/// `base`, or `base` with the first number from `n` up that makes it a name `taken` does not
+/// know, shortened to keep within the length limit. Leaves `n` past any number it used.
+fn unique_name(base: &str, n: &mut u32, taken: impl Fn(&str) -> bool) -> String {
+    let mut name = base.to_owned();
+    while taken(&name) {
+        let suffix = format!(" {n}");
+        let room = MAX_PRESET_NAME - suffix.len();
+        name = format!("{}{suffix}", base.chars().take(room).collect::<String>().trim_end());
+        *n += 1;
+    }
+    name
 }
 
 /// Checks a name typed for a preset and returns it trimmed.
@@ -497,7 +517,8 @@ impl Settings {
         if builtins().iter().any(|p| same_name(&p.name, name)) {
             return Err(PresetError::Taken);
         }
-        let curve = self.eq.curve();
+        let mut curve = self.eq.curve();
+        curve.sanitize();
         let existing = self.presets.iter().position(|p| same_name(&p.name, name));
         let stored = match existing {
             Some(index) => {
@@ -521,22 +542,12 @@ impl Settings {
     /// treble are turned off, since the file describes the whole correction; the graphic
     /// sliders and balance are kept.
     pub fn import_preset(&mut self, name: &str, curve: &Curve) -> Result<String, PresetError> {
-        let mut name: String = name.trim().chars().filter(|c| !c.is_control()).collect();
-        name = name.chars().take(MAX_PRESET_NAME).collect::<String>().trim().to_owned();
-        if name.is_empty() {
-            name = "Imported".into();
-        }
-        // A file named after a built-in preset gets a number instead of an error, and one
-        // that no preset of the user's already has.
-        let base = name.clone();
-        let mut n = 2;
-        let renamed = builtins().iter().any(|p| same_name(&p.name, &name));
-        while renamed && self.all_presets().any(|p| same_name(&p.name, &name)) {
-            let suffix = format!(" {n}");
-            let room = MAX_PRESET_NAME - suffix.len();
-            name = format!("{}{suffix}", base.chars().take(room).collect::<String>());
-            n += 1;
-        }
+        let name: String = name.trim().chars().filter(|c| !c.is_control()).collect();
+        let name = name.chars().take(MAX_PRESET_NAME).collect::<String>().trim().to_owned();
+        let base = if name.is_empty() { "Imported".to_owned() } else { name };
+        // An import never replaces a preset, which undo could not bring back: a name already
+        // in use, built-in or the user's own, gets a number.
+        let name = unique_name(&base, &mut 2, |name| self.all_presets().any(|p| same_name(&p.name, name)));
         let before = self.eq.clone();
         self.eq.mode = Mode::Parametric;
         self.eq.bands = curve.bands.clone();
@@ -619,23 +630,21 @@ impl Settings {
     /// Gives every user preset a usable name, distinct from the built-in ones and from
     /// each other, and follows the renames in every reference.
     fn sanitize_names(&mut self) {
-        let mut taken: Vec<String> = builtins().iter().map(|p| p.name.clone()).collect();
+        // Compared as `same_name` does. With a set, and the next number to try for each
+        // name, a file with thousands of presets of one name does not take minutes to load.
+        let key = |name: &str| name.trim().to_lowercase();
+        let mut taken: HashSet<String> = builtins().iter().map(|p| key(&p.name)).collect();
+        let mut next: HashMap<String, u32> = HashMap::new();
         for index in 0..self.presets.len() {
             let old = self.presets[index].name.clone();
             let cleaned: String = old.chars().filter(|c| !c.is_control()).collect();
             let cleaned: String = cleaned.trim().chars().take(MAX_PRESET_NAME).collect();
             let base = match cleaned.trim() {
-                "" => "Preset".to_owned(),
-                name => name.to_owned(),
+                "" => "Preset",
+                name => name,
             };
-            let mut name = base.clone();
-            let mut n = 2;
-            while taken.iter().any(|t| same_name(t, &name)) {
-                let suffix = format!(" {n}");
-                let room = MAX_PRESET_NAME - suffix.len();
-                name = format!("{}{suffix}", base.chars().take(room).collect::<String>().trim_end());
-                n += 1;
-            }
+            let n = next.entry(key(base)).or_insert(2);
+            let name = unique_name(base, n, |name| taken.contains(&key(name)));
             if name != old {
                 self.presets[index].name = name.clone();
                 // Only the first preset that had the old name keeps its references.
@@ -647,7 +656,7 @@ impl Settings {
                     });
                 }
             }
-            taken.push(name);
+            taken.insert(key(&name));
         }
     }
 
@@ -659,33 +668,119 @@ impl Settings {
         self.sanitize_names();
     }
 
-    fn path() -> Option<PathBuf> {
-        Some(dirs::data_dir()?.join("eq").join("state.json"))
+    /// The folder EQ keeps its files in: ~/Library/Application Support/eq.
+    pub fn dir() -> Option<PathBuf> {
+        Some(dirs::data_dir()?.join("eq"))
     }
 
-    fn parse(bytes: &[u8]) -> Self {
-        let mut settings: Settings = serde_json::from_slice(bytes).unwrap_or_default();
+    pub fn path() -> Option<PathBuf> {
+        Some(Self::dir()?.join("state.json"))
+    }
+
+    /// Settings read from a file and made safe, or None if they are not settings this
+    /// version can read.
+    fn parse(bytes: &[u8]) -> Option<Self> {
+        let mut settings: Settings = serde_json::from_slice(bytes).ok()?;
         settings.sanitize();
-        settings
+        Some(settings)
     }
 
-    pub fn load() -> Self {
-        let bytes = Self::path().and_then(|p| std::fs::read(p).ok());
-        Self::parse(bytes.as_deref().unwrap_or_default())
+    pub fn load() -> (Self, Option<LoadProblem>) {
+        match Self::path() {
+            Some(path) => Self::load_from(&path),
+            None => (Self::default(), None),
+        }
+    }
+
+    /// Reads the settings at `path`. A file this version cannot read, which a newer version
+    /// may have written, is moved aside first, so that saving cannot overwrite the presets
+    /// in it.
+    pub fn load_from(path: &Path) -> (Self, Option<LoadProblem>) {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (Self::default(), None),
+            Err(error) => return (Self::default(), Some(LoadProblem::Unreadable(error))),
+        };
+        if let Some(settings) = Self::parse(&bytes) {
+            return (settings, None);
+        }
+        let problem = match set_aside(path) {
+            Ok(kept) => LoadProblem::SetAside(kept),
+            Err(error) => LoadProblem::NotSetAside(error),
+        };
+        (Self::default(), Some(problem))
+    }
+
+    pub fn save(&self) -> std::io::Result<()> {
+        match Self::path() {
+            Some(path) => self.save_to(&path),
+            None => Ok(()),
+        }
     }
 
     /// Writes the file whole or not at all, so a crash mid-write cannot lose the settings.
-    pub fn save(&self) -> std::io::Result<()> {
-        let Some(path) = Self::path() else {
-            return Ok(());
-        };
+    pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
         let temp = path.with_extension("json.tmp");
-        std::fs::write(&temp, serde_json::to_vec_pretty(self)?)?;
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(&serde_json::to_vec_pretty(self)?)?;
+        // On disk before the rename, or a power cut could leave an empty file in its place.
+        file.sync_all()?;
         std::fs::rename(temp, path)
     }
+}
+
+/// Why the settings EQ started with are not the ones saved last.
+#[derive(Debug)]
+pub enum LoadProblem {
+    /// The file could not be read at all.
+    Unreadable(std::io::Error),
+    /// The file was not settings this version understands. It was kept under this name.
+    SetAside(PathBuf),
+    /// The file was not settings this version understands, and could not be kept aside.
+    NotSetAside(std::io::Error),
+}
+
+impl std::fmt::Display for LoadProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadProblem::Unreadable(error) => {
+                write!(f, "Could not read the saved settings ({error}), so EQ started with defaults.")
+            }
+            LoadProblem::SetAside(kept) => {
+                let name = kept.file_name().unwrap_or_default().to_string_lossy();
+                write!(
+                    f,
+                    "The saved settings were from a newer version of EQ or damaged, so EQ started \
+                     with defaults. The old file was kept as {name}."
+                )
+            }
+            LoadProblem::NotSetAside(error) => write!(
+                f,
+                "The saved settings were from a newer version of EQ or damaged, and could not be \
+                 kept aside ({error}). They will be replaced when EQ next saves."
+            ),
+        }
+    }
+}
+
+/// Moves an unreadable settings file to the first free `<name>.unreadable[-n].json` beside it.
+fn set_aside(path: &Path) -> std::io::Result<PathBuf> {
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    for n in 1..100 {
+        let name = match n {
+            1 => format!("{stem}.unreadable.json"),
+            n => format!("{stem}.unreadable-{n}.json"),
+        };
+        let kept = path.with_file_name(name);
+        if !kept.exists() {
+            std::fs::rename(path, &kept)?;
+            return Ok(kept);
+        }
+    }
+    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "too many unreadable settings files"))
 }
 
 #[cfg(test)]
@@ -707,7 +802,7 @@ mod tests {
     fn a_file_from_before_presets_still_loads() {
         let old = br#"{"bands":[{"kind":"Peak","freq":1000.0,"gain_db":3.0,"q":1.0,"enabled":true}],
             "preamp_db":-3.0,"bypass":false}"#;
-        let settings = Settings::parse(old);
+        let settings = Settings::parse(old).unwrap();
         assert_eq!(settings.eq.preamp_db, -3.0);
         assert_eq!(settings.eq.bands.len(), 1);
         assert_eq!(settings.eq.mode, Mode::Parametric);
@@ -724,7 +819,7 @@ mod tests {
             "presets":[{"name":"Warm","bands":[],"preamp_db":-4.0}],"active_preset":"Warm",
             "per_device":true,"current_device":"spk",
             "devices":{"hp":{"bands":[],"preamp_db":-2.0,"active_preset":null}}}"#;
-        let mut settings = Settings::parse(old);
+        let mut settings = Settings::parse(old).unwrap();
         assert_eq!(settings.presets[0].curve.preamp_db, -4.0);
         assert_eq!(settings.presets[0].curve.mode, Mode::Parametric);
         assert_eq!(settings.active_index(), Some(user(0)));
@@ -743,12 +838,12 @@ mod tests {
         settings.switch_device("speakers");
         settings.switch_device("headphones");
         let bytes = serde_json::to_vec(&settings).unwrap();
-        assert_eq!(Settings::parse(&bytes), settings);
+        assert_eq!(Settings::parse(&bytes).as_ref(), Some(&settings));
     }
 
     #[test]
     fn unreadable_or_out_of_range_files_are_made_safe() {
-        assert_eq!(Settings::parse(b"not json"), Settings::default());
+        assert_eq!(Settings::parse(b"not json"), None);
         let mut wild = with_preamp(90.0);
         wild.eq.bass_db = 40.0;
         wild.eq.balance = 3.0;
@@ -757,7 +852,7 @@ mod tests {
             gains_db: vec![1.0; 7],
         };
         wild.save_preset("Loud").unwrap();
-        let settings = Settings::parse(&serde_json::to_vec(&wild).unwrap());
+        let settings = Settings::parse(&serde_json::to_vec(&wild).unwrap()).unwrap();
         assert_eq!(settings.eq.preamp_db, MAX_GAIN_DB);
         assert_eq!(settings.eq.bass_db, SLIDER_MAX_DB);
         assert_eq!(settings.eq.balance, 1.0);
@@ -886,7 +981,7 @@ mod tests {
             });
         }
         old.active_preset = Some("Flat".into());
-        let settings = Settings::parse(&serde_json::to_vec(&old).unwrap());
+        let settings = Settings::parse(&serde_json::to_vec(&old).unwrap()).unwrap();
         let names: Vec<_> = settings.presets.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["Flat 2", "warm", "Warm 2", "Preset"]);
         assert_eq!(settings.active_preset.as_deref(), Some("Flat 2"));
@@ -981,6 +1076,118 @@ mod tests {
         assert_eq!(settings.eq.preamp_db, -6.0);
         assert_eq!((settings.eq.mode, settings.eq.balance), (Mode::Graphic, 0.5));
         assert!(!settings.switch_device("headphones"));
+    }
+
+    #[test]
+    fn values_that_are_not_numbers_become_safe_defaults() {
+        let mut band = Band::new(FilterKind::Peak, f32::NAN);
+        band.gain_db = f32::INFINITY;
+        band.q = f32::NAN;
+        let mut state = EqState {
+            bands: vec![band],
+            preamp_db: f32::NAN,
+            bass_db: f32::NEG_INFINITY,
+            treble_db: f32::NAN,
+            balance: f32::NAN,
+            ..EqState::default()
+        };
+        state.clamp();
+        let band = state.bands[0];
+        assert!(band.freq.is_finite() && band.q.is_finite());
+        assert_eq!(band.gain_db, 0.0);
+        assert_eq!((state.preamp_db, state.bass_db, state.treble_db, state.balance), (0.0, 0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn a_not_a_number_never_reaches_the_file() {
+        let mut settings = with_preamp(f32::NAN);
+        settings.save_preset("Warm").unwrap();
+        settings.eq.clamp();
+        let settings = Settings::parse(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(settings.presets.len(), 1);
+    }
+
+    #[test]
+    fn thousands_of_clashing_names_load_quickly() {
+        let mut old = with_preamp(0.0);
+        old.presets = (0..3_000)
+            .map(|_| Preset {
+                name: "Same".into(),
+                curve: old.eq.curve(),
+            })
+            .collect();
+        let bytes = serde_json::to_vec(&old).unwrap();
+        let started = std::time::Instant::now();
+        let settings = Settings::parse(&bytes).unwrap();
+        let names: HashSet<_> = settings.presets.iter().map(|p| p.name.to_lowercase()).collect();
+        assert_eq!(names.len(), 3_000);
+        assert_eq!(settings.presets[2_999].name, "Same 3000");
+        // This took over a minute when every name was compared with every other.
+        assert!(started.elapsed().as_secs() < 10, "{:?}", started.elapsed());
+    }
+
+    #[test]
+    fn importing_never_replaces_a_preset_of_the_same_name() {
+        let mut settings = with_preamp(-1.0);
+        settings.save_preset("HD 650").unwrap();
+        let curve = Curve {
+            bands: vec![Band::new(FilterKind::Peak, 500.0)],
+            preamp_db: -6.0,
+            ..Curve::default()
+        };
+        assert_eq!(settings.import_preset("HD 650", &curve).as_deref(), Ok("HD 650 2"));
+        assert_eq!(settings.import_preset("hd 650", &curve).as_deref(), Ok("hd 650 3"));
+        assert_eq!(settings.presets[0].curve.preamp_db, -1.0);
+        let long = "x".repeat(MAX_PRESET_NAME);
+        settings.save_preset(&long).unwrap();
+        let renamed = settings.import_preset(&long, &curve).unwrap();
+        assert_eq!(renamed.chars().count(), MAX_PRESET_NAME);
+        assert!(renamed.ends_with(" 2"));
+    }
+
+    #[test]
+    fn an_unreadable_file_is_set_aside_instead_of_overwritten() {
+        let dir = std::env::temp_dir().join(format!("eq-test-unreadable-{}", std::process::id()));
+        _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        let newer = br#"{"bands":[{"kind":"Notch","freq":1000.0,"gain_db":0.0,"q":1.0,"enabled":true}],
+            "preamp_db":0.0,"bypass":false,"presets":[{"name":"Mine","bands":[],"preamp_db":-2.0}]}"#;
+        std::fs::write(&path, newer).unwrap();
+
+        let (settings, problem) = Settings::load_from(&path);
+        assert_eq!(settings, Settings::default());
+        let kept = match problem {
+            Some(LoadProblem::SetAside(kept)) => kept,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(std::fs::read(&kept).unwrap(), newer);
+        assert!(!path.exists());
+        // A second unreadable file does not replace the first one set aside.
+        std::fs::write(&path, b"{").unwrap();
+        let (_, problem) = Settings::load_from(&path);
+        assert!(matches!(problem, Some(LoadProblem::SetAside(ref other)) if *other != kept));
+        assert_eq!(std::fs::read(&kept).unwrap(), newer);
+
+        // No file at all is a first launch, not a problem.
+        let (_, problem) = Settings::load_from(&dir.join("missing.json"));
+        assert!(problem.is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn saving_writes_the_whole_file_and_loads_back() {
+        let dir = std::env::temp_dir().join(format!("eq-test-save-{}", std::process::id()));
+        _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("nested").join("state.json");
+        let mut settings = with_preamp(-3.0);
+        settings.save_preset("Warm").unwrap();
+        settings.save_to(&path).unwrap();
+        let (loaded, problem) = Settings::load_from(&path);
+        assert!(problem.is_none());
+        assert_eq!(loaded, settings);
+        assert!(!path.with_extension("json.tmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
