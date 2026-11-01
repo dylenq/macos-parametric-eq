@@ -140,6 +140,9 @@ pub struct BiquadState {
     s2: f64,
 }
 
+/// State below this is far too quiet to hear (−600 dB), and is set to zero.
+const TINY: f64 = 1e-30;
+
 impl BiquadState {
     #[inline]
     pub fn tick(&mut self, c: &Coeffs, x: f64) -> f64 {
@@ -147,6 +150,21 @@ impl BiquadState {
         self.s1 = c.b1 * x - c.a1 * y + self.s2;
         self.s2 = c.b2 * x - c.a2 * y;
         y
+    }
+
+    /// Zeroes state too small to hear. In silence the state decays towards zero and, left
+    /// alone, a slowly decaying one spends seconds among the subnormal numbers (below
+    /// −6000 dB), which Intel processors handle many times slower. Called once per block,
+    /// this stops such a state long before it gets there; one fast enough to get there
+    /// within a block passes through in a few samples.
+    #[inline]
+    pub fn flush(&mut self) {
+        if self.s1.abs() < TINY {
+            self.s1 = 0.0;
+        }
+        if self.s2.abs() < TINY {
+            self.s2 = 0.0;
+        }
     }
 }
 
@@ -195,6 +213,45 @@ mod tests {
         let hp = Coeffs::design(FilterKind::HighPass, 1_000.0, 0.0, q, FS);
         assert!(close(lp.magnitude_db(1_000.0, FS), -3.0103, 1e-3));
         assert!(close(hp.magnitude_db(1_000.0, FS), -3.0103, 1e-3));
+    }
+
+    #[test]
+    fn every_setting_at_every_rate_is_stable() {
+        // Bands above Nyquist, as at the 8 kHz of a headset in call mode, sit just under it.
+        for sample_rate in [8_000.0, 16_000.0, 44_100.0, 48_000.0, 192_000.0, 384_000.0] {
+            for kind in FilterKind::ALL {
+                for freq in [20.0, 1_000.0, 3_999.0, 20_000.0] {
+                    for q in [0.1, 0.707, 18.0] {
+                        for gain in [-24.0, 0.0, 24.0] {
+                            let c = Coeffs::design(kind, freq, gain, q, sample_rate);
+                            let stable = c.a2.abs() < 1.0 && c.a1.abs() < 1.0 + c.a2;
+                            let finite = [c.b0, c.b1, c.b2, c.a1, c.a2].iter().all(|v| v.is_finite());
+                            assert!(stable && finite, "{kind:?} {freq} Hz Q {q} {gain} dB at {sample_rate}: {c:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn silence_never_leaves_subnormal_state() {
+        // The slowest decay the editor allows: a 20 Hz shelf at the highest Q.
+        for c in [
+            Coeffs::design(FilterKind::Peak, 1_000.0, 6.0, 1.0, FS),
+            Coeffs::design(FilterKind::LowShelf, 20.0, 24.0, 18.0, FS),
+        ] {
+            let mut state = BiquadState::default();
+            state.tick(&c, 1.0);
+            for block in 0..20_000 {
+                for _ in 0..512 {
+                    state.tick(&c, 0.0);
+                }
+                state.flush();
+                assert!(!state.s1.is_subnormal() && !state.s2.is_subnormal(), "block {block}");
+            }
+            assert_eq!((state.s1, state.s2), (0.0, 0.0));
+        }
     }
 
     #[test]

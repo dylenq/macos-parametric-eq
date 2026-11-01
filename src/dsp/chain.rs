@@ -101,7 +101,9 @@ impl Chain {
         }
         let mut out = [0f64; 2];
         for ch in 0..2 {
-            let dry = input[ch] as f64;
+            // Any app can play a NaN or an infinity. In the filters' feedback it would stay
+            // for good, so it plays as silence instead.
+            let dry = Some(input[ch] as f64).filter(|x| x.is_finite()).unwrap_or(0.0);
             let mut x = dry * self.gain[ch];
             for (state, coeffs) in self.state[ch][..self.active]
                 .iter_mut()
@@ -109,12 +111,25 @@ impl Chain {
             {
                 x = state.tick(coeffs, x);
             }
+            if !x.is_finite() {
+                // Nothing finite should get here, but if it does, the filters start afresh.
+                self.state[ch] = [BiquadState::default(); MAX_STAGES];
+                x = dry;
+            }
             out[ch] = dry + self.wet * (x - dry);
         }
         if self.limit || self.limit_gain < 1.0 {
             self.limit(&mut out);
         }
         [out[0] as f32, out[1] as f32]
+    }
+
+    /// Clears filter state too small to hear, so silence cannot leave it subnormal. Call
+    /// once per block of audio.
+    pub fn flush_denormals(&mut self) {
+        for state in &mut self.state {
+            state[..self.active].iter_mut().for_each(BiquadState::flush);
+        }
     }
 
     /// Turns both channels down together the instant a peak would pass the ceiling, then
@@ -223,6 +238,25 @@ mod tests {
         chain.set_params(&ChainParams::from_state(&EqState::default(), FS));
         steady_peak(&mut chain, 1_000.0, 96_000, 1);
         assert_eq!(chain.tick([0.25, -0.25]), [0.25, -0.25]);
+    }
+
+    #[test]
+    fn a_sample_that_is_not_a_number_does_not_stick() {
+        let mut state = state_with_peak(6.0);
+        state.bass_db = 3.0;
+        let mut chain = Chain::new(FS, &ChainParams::from_state(&state, FS));
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(chain.tick([bad, 0.25]).iter().all(|y| y.is_finite()));
+            assert!(steady_peak(&mut chain, 1_000.0, 4_800, 2_400) > 0.4);
+            // Bypassed, the dry signal passes untouched.
+            state.bypass = true;
+            chain.set_params(&ChainParams::from_state(&state, FS));
+            assert!(chain.tick([bad, bad]).iter().all(|y| y.is_finite()));
+            steady_peak(&mut chain, 1_000.0, 48_000, 1);
+            assert_eq!(chain.tick([0.25, -0.25]), [0.25, -0.25]);
+            state.bypass = false;
+            chain.set_params(&ChainParams::from_state(&state, FS));
+        }
     }
 
     #[test]

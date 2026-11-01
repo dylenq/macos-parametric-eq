@@ -410,6 +410,28 @@ mod tests {
     }
 
     #[test]
+    fn every_rate_gives_stable_bounded_filters() {
+        // Down to the 8 kHz of a Bluetooth headset in call mode, where most sliders sit
+        // above Nyquist and their filters are pushed together under it.
+        let stable = |c: &Coeffs| c.a2.abs() < 1.0 && c.a1.abs() < 1.0 + c.a2;
+        let mut rng = Lcg(11);
+        for sample_rate in [8_000.0, 11_025.0, 16_000.0, 22_050.0, 44_100.0, 96_000.0, 192_000.0, 384_000.0] {
+            for count in COUNTS {
+                for _ in 0..10 {
+                    let gains: Vec<f32> = (0..count).map(|_| rng.gain(12.0)).collect();
+                    let filters = design(count, &gains, sample_rate);
+                    assert!(filters.iter().all(stable), "{count} bands at {sample_rate}: {filters:?}");
+                    for k in 0..200 {
+                        let f = 20.0 * (sample_rate * 0.49 / 20.0).powf(k as f64 / 199.0);
+                        let db = response(&filters, f, sample_rate);
+                        assert!(db.is_finite() && db.abs() < 40.0, "{count} bands at {sample_rate}: {db:.1} dB at {f:.0} Hz");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn smooth_settings_are_followed_closely() {
         for count in COUNTS {
             let c = centres(count).unwrap();

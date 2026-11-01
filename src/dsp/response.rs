@@ -1,9 +1,20 @@
 use super::biquad::Coeffs;
 use super::stages::Stages;
 use crate::state::{Band, EqState, MAX_FREQ, MAX_GAIN_DB, MIN_FREQ, Mode};
+use std::cell::RefCell;
 
 /// Points the peak search samples between 20 Hz and 20 kHz, besides the band centres.
 const PEAK_POINTS: usize = 512;
+
+/// A result with the filters, rate and frequencies it was worked out for.
+type Cached<T> = Option<(Stages, f64, Vec<f32>, T)>;
+
+thread_local! {
+    /// The last curve and peak worked out. The window asks for the same ones every frame
+    /// until something changes.
+    static CURVE: RefCell<Cached<Vec<f32>>> = const { RefCell::new(None) };
+    static PEAK: RefCell<Cached<f32>> = const { RefCell::new(None) };
+}
 
 /// Response of a single band in dB at `freq`.
 pub fn band_db(band: &Band, freq: f32, sample_rate: f64) -> f32 {
@@ -14,25 +25,49 @@ pub fn band_db(band: &Band, freq: f32, sample_rate: f64) -> f32 {
 /// sliders, plus bass and treble. Preamp and balance are not included.
 pub fn total_db(state: &EqState, freqs: &[f32], sample_rate: f64) -> Vec<f32> {
     let stages = Stages::new(state, sample_rate);
-    freqs
-        .iter()
-        .map(|&f| stages.magnitude_db(f as f64, sample_rate) as f32)
-        .collect()
+    CURVE.with_borrow_mut(|last| {
+        if let Some((s, rate, f, dbs)) = last
+            && *s == stages
+            && *rate == sample_rate
+            && f == freqs
+        {
+            return dbs.clone();
+        }
+        let dbs: Vec<f32> = freqs
+            .iter()
+            .map(|&f| stages.magnitude_db(f as f64, sample_rate) as f32)
+            .collect();
+        *last = Some((stages, sample_rate, freqs.to_vec(), dbs.clone()));
+        dbs
+    })
 }
 
 /// The loudest point of the response in dB, before the preamp.
 pub fn peak_db(state: &EqState, sample_rate: f64) -> f32 {
-    let mut freqs: Vec<f32> = (0..PEAK_POINTS)
-        .map(|i| MIN_FREQ * (MAX_FREQ / MIN_FREQ).powf(i as f32 / (PEAK_POINTS - 1) as f32))
-        .collect();
     // A narrow peak can fall between the points, so look at each band's own frequency.
-    match state.mode {
-        Mode::Parametric => freqs.extend(state.bands.iter().map(|b| b.freq)),
-        Mode::Graphic => freqs.extend_from_slice(state.graphic.centres()),
-    }
-    freqs.retain(|&f| (f as f64) < sample_rate / 2.0);
-    let peak = total_db(state, &freqs, sample_rate).into_iter().fold(f32::MIN, f32::max);
-    if peak.is_finite() { peak } else { 0.0 }
+    let own: Vec<f32> = match state.mode {
+        Mode::Parametric => state.bands.iter().map(|b| b.freq).collect(),
+        Mode::Graphic => state.graphic.centres().to_vec(),
+    };
+    let stages = Stages::new(state, sample_rate);
+    PEAK.with_borrow_mut(|last| {
+        if let Some((s, rate, f, peak)) = last
+            && *s == stages
+            && *rate == sample_rate
+            && *f == own
+        {
+            return *peak;
+        }
+        let peak = (0..PEAK_POINTS)
+            .map(|i| MIN_FREQ * (MAX_FREQ / MIN_FREQ).powf(i as f32 / (PEAK_POINTS - 1) as f32))
+            .chain(own.iter().copied())
+            .filter(|&f| (f as f64) < sample_rate / 2.0)
+            .map(|f| stages.magnitude_db(f as f64, sample_rate) as f32)
+            .fold(f32::MIN, f32::max);
+        let peak = if peak.is_finite() { peak } else { 0.0 };
+        *last = Some((stages, sample_rate, own, peak));
+        peak
+    })
 }
 
 /// A preamp that keeps a response peaking at `peak_db` from going over full scale: the peak
@@ -77,6 +112,26 @@ mod tests {
         assert!((peak_db(&state, 48_000.0) - 4.0).abs() < 0.1);
         state.bass_db = -4.0;
         assert!(peak_db(&state, 48_000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn repeated_questions_get_the_same_answer_until_something_changes() {
+        let mut band = Band::new(FilterKind::Peak, 1_000.0);
+        band.gain_db = 6.0;
+        let mut state = EqState {
+            bands: vec![band],
+            ..EqState::default()
+        };
+        let freqs = [100.0, 1_000.0];
+        let first = (peak_db(&state, 48_000.0), total_db(&state, &freqs, 48_000.0));
+        assert_eq!((peak_db(&state, 48_000.0), total_db(&state, &freqs, 48_000.0)), first);
+        state.bands[0].gain_db = 3.0;
+        assert!((peak_db(&state, 48_000.0) - 3.0).abs() < 0.01);
+        assert!((total_db(&state, &freqs, 48_000.0)[1] - 3.0).abs() < 0.01);
+        // Another rate or other frequencies are asked afresh.
+        assert_eq!(total_db(&state, &[1_000.0], 48_000.0).len(), 1);
+        let at_96k: Vec<f32> = freqs.iter().map(|&f| band_db(&state.bands[0], f, 96_000.0)).collect();
+        assert_eq!(total_db(&state, &freqs, 96_000.0), at_96k);
     }
 
     #[test]
