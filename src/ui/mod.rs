@@ -6,9 +6,9 @@ pub mod presets;
 mod screenshots;
 pub mod theme;
 
-use crate::state::Settings;
+use crate::state::{Band, Settings};
 use controls::{Level, Status};
-use eframe::egui::{CentralPanel, Frame, Margin, Panel, Rect, RichText, Ui};
+use eframe::egui::{Align2, CentralPanel, Frame, Id, Margin, Panel, Rect, RichText, Ui, Window, vec2};
 use presets::PresetAction;
 
 /// Room the lower panel starts with: the mode, bands or sliders, buttons and tone controls.
@@ -16,6 +16,41 @@ const EDITOR_HEIGHT: f32 = 300.0;
 /// Over full scale by less than this still counts as fitting.
 const OVER_THRESHOLD_DB: f32 = 0.05;
 const FULL_MESSAGE: &str = "All 16 bands are in use. Remove one to add another.";
+
+/// The indices of the bands, ascending by frequency. Equal frequencies keep storage order.
+pub(crate) fn bands_by_frequency(bands: &[Band]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..bands.len()).collect();
+    order.sort_by(|&a, &b| {
+        bands[a]
+            .freq
+            .partial_cmp(&bands[b].freq)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    order
+}
+
+/// The order the bands are shown in, ascending by frequency. While the pointer is down the
+/// order from the start of the gesture is kept, so rows and nodes do not swap places under
+/// the user's hand; it is recomputed once the pointer is released.
+pub(crate) fn display_order(ui: &Ui, bands: &[Band]) -> Vec<usize> {
+    let id = Id::new("band-display-order");
+    if ui.input(|i| i.pointer.any_down())
+        && let Some(cached) = ui.data(|d| d.get_temp::<Vec<usize>>(id))
+        && is_permutation(&cached, bands.len())
+    {
+        return cached;
+    }
+    let order = bands_by_frequency(bands);
+    ui.data_mut(|d| d.insert_temp(id, order.clone()));
+    order
+}
+
+/// Whether `order` is a permutation of `0..len`.
+fn is_permutation(order: &[usize], len: usize) -> bool {
+    order.len() == len
+        && order.iter().all(|&i| i < len)
+        && order.iter().sum::<usize>() == (0..len).sum::<usize>()
+}
 
 /// What the window asks of the app during a frame, besides direct edits to the settings.
 #[derive(Default)]
@@ -27,6 +62,8 @@ pub struct Requests {
     pub undoable: Option<String>,
     /// The Undo next to a message was clicked.
     pub undo: bool,
+    /// Whether the sweep settings panel should be open.
+    pub sweep_panel: Option<bool>,
 }
 
 /// What the window shows besides the settings it edits.
@@ -39,6 +76,11 @@ pub struct View {
     pub sample_rate: f64,
     /// The curve takes the arrow keys, unless a sheet needs them.
     pub keys: bool,
+    /// Where the diagnostic sweep is right now: the frequency it is on, and how far through
+    /// it is, or None when no sweep is playing.
+    pub sweep: Option<(f32, f32)>,
+    /// Whether the sweep settings panel is open.
+    pub sweep_open: bool,
 }
 
 /// Lays out the window: the top bar, the curve, and the bands or sliders under it. Returns
@@ -52,7 +94,7 @@ pub fn window(ui: &mut Ui, settings: &mut Settings, selected: &mut Option<usize>
         .frame(panel(Margin { left: 16, right: 16, top: 38, bottom: 10 }))
         .show_separator_line(false)
         .show(ui, |ui| {
-            controls::top_bar(ui, settings, &view.level, &view.status, view.sample_rate, &mut requests);
+            controls::top_bar(ui, settings, &view.level, &view.status, view.sample_rate, view.sweep_open, &mut requests);
             if view.silent {
                 ui.label(
                     RichText::new(
@@ -76,10 +118,24 @@ pub fn window(ui: &mut Ui, settings: &mut Settings, selected: &mut Option<usize>
     let curve = CentralPanel::default()
         .frame(panel(Margin { left: 16, right: 16, top: 4, bottom: 4 }))
         .show(ui, |ui| {
-            curve::show(ui, &mut settings.eq, selected, view.sample_rate, view.keys, &mut requests);
+            curve::show(ui, &mut settings.eq, selected, view.sample_rate, view.keys, view.sweep, &mut requests);
         })
         .response
         .rect;
+    // A floating panel for the sweep's settings, next to the button that opens it.
+    if view.sweep_open {
+        let mut open = true;
+        Window::new("Sweep settings")
+            .id(eframe::egui::Id::new("sweep-settings"))
+            .anchor(Align2::RIGHT_TOP, vec2(-16.0, 96.0))
+            .resizable(false)
+            .collapsible(false)
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                controls::sweep_panel(ui, &mut settings.eq, view.sweep);
+            });
+        requests.sweep_panel = Some(open);
+    }
     (requests, curve)
 }
 
@@ -236,6 +292,28 @@ mod tests {
 }
 
 #[cfg(test)]
+mod order_tests {
+    use super::bands_by_frequency;
+    use crate::state::{Band, FilterKind};
+
+    fn band(freq: f32) -> Band {
+        Band::new(FilterKind::Peak, freq)
+    }
+
+    #[test]
+    fn ascending_with_ties_in_storage_order() {
+        let bands = [band(1_000.0), band(100.0), band(500.0), band(100.0), band(8_000.0)];
+        assert_eq!(bands_by_frequency(&bands), vec![1, 3, 2, 0, 4]);
+    }
+
+    #[test]
+    fn empty_and_single() {
+        assert!(bands_by_frequency(&[]).is_empty());
+        assert_eq!(bands_by_frequency(&[band(100.0)]), vec![0]);
+    }
+}
+
+#[cfg(test)]
 mod frame_tests {
     use super::controls::{Level, Status};
     use super::{View, presets};
@@ -262,6 +340,8 @@ mod frame_tests {
                     silent: frame == 3,
                     sample_rate: 48_000.0,
                     keys: true,
+                    sweep: None,
+                    sweep_open: false,
                 };
                 curve_height = super::window(ui, settings, selected, &view).1.height();
             });

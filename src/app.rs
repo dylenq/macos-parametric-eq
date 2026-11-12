@@ -112,6 +112,10 @@ pub struct App {
     /// foreground again means the user asked for it, from the Dock for instance.
     left_foreground: bool,
     quitting: bool,
+    /// The sweep parameter panel is open.
+    sweep_open: bool,
+    /// The current sweep has been seen playing, so its end can be told from its start.
+    sweep_seen: bool,
 }
 
 impl App {
@@ -144,6 +148,8 @@ impl App {
             last_frame: Instant::now(),
             last_accent_poll: Instant::now(),
             history: History::default(),
+            sweep_open: false,
+            sweep_seen: false,
             menu: AppMenu::install(ctx)
                 .inspect_err(|error| eprintln!("could not build the menu bar: {error}"))
                 .ok(),
@@ -501,8 +507,13 @@ impl App {
                     if let Some(index) = self.selected.take()
                         && index < self.settings.eq.bands.len()
                     {
+                        let number = crate::ui::bands_by_frequency(&self.settings.eq.bands)
+                            .iter()
+                            .position(|&i| i == index)
+                            .map(|p| p + 1)
+                            .unwrap_or(index + 1);
                         self.settings.eq.bands.remove(index);
-                        self.undoable = Some(format!("Band {} deleted", index + 1));
+                        self.undoable = Some(format!("Band {number} deleted"));
                     }
                 }
                 Command::RemoveAllBands => {
@@ -650,7 +661,11 @@ impl eframe::App for App {
         self.sync_menu(ctx);
         // A moving meter needs a steady frame rate. Otherwise only the device poll and the
         // timed messages need waking for: input and menu choices wake the app themselves.
-        let meter_moving = !self.hidden && self.output_db > METER_FLOOR_DB;
+        let sweep_active = self
+            .running
+            .as_ref()
+            .is_some_and(|running| running.engine.meters.sweep_position().is_some());
+        let meter_moving = !self.hidden && (self.output_db > METER_FLOOR_DB || sweep_active);
         ctx.request_repaint_after(if meter_moving { METER_FRAME } else { DEVICE_POLL });
     }
 
@@ -670,6 +685,18 @@ impl eframe::App for App {
         }
 
         let before = self.settings.clone();
+        // A sweep turns itself off when it has played to the end.
+        let sweep = self.running.as_ref().and_then(|r| r.engine.meters.sweep_position());
+        if sweep.is_some() {
+            self.sweep_seen = true;
+        } else if !self.settings.eq.sweep.enabled {
+            // Nothing playing and the toggle is off: ready for the next sweep.
+            self.sweep_seen = false;
+        } else if self.sweep_seen {
+            // Seen playing, now not: the sweep ran to its end.
+            self.sweep_seen = false;
+            self.settings.eq.sweep.enabled = false;
+        }
         // A file dropped while a sheet is open would change the presets under it.
         let dropped = ui.input(|i| i.raw.dropped_files.clone());
         if self.dialog.is_none() {
@@ -693,6 +720,8 @@ impl eframe::App for App {
             sample_rate: self.sample_rate(),
             // While a sheet is open, the keyboard belongs to it.
             keys: self.dialog.is_none(),
+            sweep,
+            sweep_open: self.sweep_open,
         };
         let (requests, _) = ui::window(ui, &mut self.settings, &mut self.selected, &view);
 
@@ -708,6 +737,9 @@ impl eframe::App for App {
         if requests.undo {
             self.undo_requested = true;
             ui.ctx().request_repaint();
+        }
+        if let Some(open) = requests.sweep_panel {
+            self.sweep_open = open;
         }
         if let Some(dialog) = &mut self.dialog
             && let Some(outcome) = dialog.show(ui.ctx(), &mut self.settings)

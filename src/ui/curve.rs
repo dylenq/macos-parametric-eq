@@ -1,5 +1,8 @@
 use super::theme::{self, CAPTION, Palette};
-use super::{FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, format_freq, format_gain, snap_freq, snap_gain};
+use super::{
+    FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, display_order, format_freq, format_gain, snap_freq,
+    snap_gain,
+};
 use crate::dsp::response;
 use crate::state::{
     Band, EqState, FilterKind, MAX_BANDS, MAX_FREQ, MAX_GAIN_DB, MAX_Q, MIN_FREQ, MIN_Q, Mode,
@@ -161,13 +164,15 @@ fn chip(painter: &Painter, anchor: Pos2, above: bool, text: String, bounds: Rect
 /// Draws the frequency response and handles editing it. In parametric mode, drag a node to
 /// set frequency and gain, scroll over it to change Q, right-click for filter type, and
 /// double-click empty space to add a band. In graphic mode, drag a slider's point up or
-/// down. The arrow keys nudge the selected band.
+/// down. The arrow keys nudge the selected band. `sweep`, when a diagnostic tone is
+/// playing, draws the position of the sweep on the curve.
 pub fn show(
     ui: &mut Ui,
     state: &mut EqState,
     selected: &mut Option<usize>,
     sample_rate: f64,
     keys: bool,
+    sweep: Option<(f32, f32)>,
     requests: &mut Requests,
 ) {
     let p = &theme::palette(ui);
@@ -275,6 +280,33 @@ pub fn show(
         );
     }
 
+    // The diagnostic sweep, as a line through the curve and a caption saying where it is.
+    if let Some((freq, progress)) = sweep {
+        let freq = freq.clamp(MIN_FREQ, MAX_FREQ);
+        let x = axes.x(freq);
+        let curve_y = response::total_db(state, &[freq], sample_rate)
+            .first()
+            .map(|&db| axes.y(db));
+        plot.vline(x, axes.rect.y_range(), Stroke::new(1.5, accent.gamma_multiply(0.65)));
+        if let Some(y) = curve_y {
+            plot.circle_filled(pos2(x, y), 6.0, accent.gamma_multiply(0.35));
+            plot.circle_filled(pos2(x, y), 3.0, accent);
+        }
+        // How far along the sweep is, hugging the top of the plot.
+        let width = axes.rect.width() * progress.clamp(0.0, 1.0);
+        if width > 0.0 {
+            let bar = Rect::from_min_size(axes.rect.left_top(), vec2(width, 3.0));
+            plot.rect_filled(bar, 0.0, accent.gamma_multiply(0.85));
+        }
+        let label = format!("Sweeping {}", format_freq(freq));
+        let galley = painter.layout_no_wrap(label, FontId::proportional(theme::SMALL), p.plot);
+        let size = galley.size() + vec2(12.0, 6.0);
+        let left = (x - size.x / 2.0).clamp(axes.rect.left() + 2.0, (axes.rect.right() - size.x - 2.0).max(axes.rect.left() + 2.0));
+        let rect = Rect::from_min_size(pos2(left, axes.rect.top() + 4.0), size);
+        painter.rect_filled(rect, CornerRadius::same(6), p.label);
+        painter.galley(rect.min + vec2(6.0, 3.0), galley, p.plot);
+    }
+
     match state.mode {
         Mode::Parametric => {
             if keys {
@@ -319,9 +351,17 @@ fn bands(
         *selected = None;
     }
 
+    // Nodes and rows are numbered by frequency, but storage order stays the identity of a band.
+    let sorted = display_order(ui, &state.bands);
+    let mut position = vec![0usize; state.bands.len()];
+    for (display, &index) in sorted.iter().enumerate() {
+        position[index] = display;
+    }
+
     let mut delete = None;
     let mut dragging = None;
-    for (index, band) in state.bands.iter_mut().enumerate() {
+    for &index in &sorted {
+        let band = &mut state.bands[index];
         let hit = Rect::from_center_size(axes.node(band), vec2(NODE_HIT, NODE_HIT));
         let node = ui.interact(hit, ui.id().with(("eq-node", index)), Sense::click_and_drag());
 
@@ -365,7 +405,7 @@ fn bands(
             }
         });
         if dragging != Some(index) {
-            node.on_hover_text(describe(index, band));
+            node.on_hover_text(describe(position[index], band));
         }
     }
 
@@ -380,7 +420,7 @@ fn bands(
     }
 
     // Nodes, with the selected one drawn last so it sits on top.
-    let mut order: Vec<usize> = (0..state.bands.len()).filter(|&i| Some(i) != *selected).collect();
+    let mut order: Vec<usize> = sorted.iter().copied().filter(|&i| Some(i) != *selected).collect();
     order.extend(selected.filter(|&i| i < state.bands.len()));
     for &index in &order {
         let band = &state.bands[index];
@@ -401,7 +441,7 @@ fn bands(
         let center = axes.node(&state.bands[index]);
         let above = center.y - axes.rect.top() > 26.0;
         let anchor = center + vec2(0.0, if above { -12.0 } else { 12.0 });
-        let text = (index + 1).to_string();
+        let text = (position[index] + 1).to_string();
         let rect = Rect::from_center_size(
             anchor + vec2(0.0, if above { -6.0 } else { 6.0 }),
             vec2(7.0 * text.len() as f32 + 2.0, 12.0),
@@ -428,18 +468,19 @@ fn bands(
     {
         let center = axes.node(band);
         let above = center.y - axes.rect.top() > 60.0;
-        chip(painter, center, above, describe(index, band), axes.rect, p);
+        chip(painter, center, above, describe(position[index], band), axes.rect, p);
     }
 
     if let Some(index) = delete {
         state.bands.remove(index);
         *selected = None;
-        requests.undoable = Some(format!("Band {} deleted", index + 1));
+        requests.undoable = Some(format!("Band {} deleted", position[index] + 1));
     }
 }
 
-/// "3  1.25 kHz  +3.5 dB  Q 1.00", leaving out the gain of pass filters.
-fn describe(index: usize, band: &Band) -> String {
+/// "3  1.25 kHz  +3.5 dB  Q 1.00", leaving out the gain of pass filters. `position` is
+/// the band's place in the frequency-sorted display order, counting from zero.
+fn describe(position: usize, band: &Band) -> String {
     let gain = if band.kind.has_gain() {
         format!("{}  ", format_gain(band.gain_db))
     } else {
@@ -447,7 +488,7 @@ fn describe(index: usize, band: &Band) -> String {
     };
     format!(
         "{}  {}  {}  {gain}Q {:.2}",
-        index + 1,
+        position + 1,
         band.kind.label(),
         format_freq(band.freq),
         band.q

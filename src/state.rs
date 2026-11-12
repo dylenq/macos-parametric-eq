@@ -94,6 +94,57 @@ pub enum Mode {
     Graphic,
 }
 
+/// A frequency sweep (chirp) for listening to the response, logarithmic or linear.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SweepType {
+    #[default]
+    Logarithmic,
+    Linear,
+}
+
+/// A diagnostic frequency sweep. While `enabled`, the audio thread plays a chirp at
+/// `level` dB against full scale, from `start_freq` to `end_freq` over `duration`
+/// seconds, in place of the tapped system audio.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Sweep {
+    /// Whether a sweep is playing right now.
+    pub enabled: bool,
+    pub sweep_type: SweepType,
+    /// The frequency the sweep starts at, in Hz.
+    pub start_freq: f32,
+    /// The frequency the sweep ends at, in Hz.
+    pub end_freq: f32,
+    /// How long the sweep runs, in seconds.
+    pub duration: f32,
+    /// The sweep's level against full scale, in dB. Negative.
+    pub level: f32,
+}
+
+impl Sweep {
+    /// The default sweep: logarithmic, 20 Hz to 20 kHz, 4 seconds, −12 dB.
+    pub fn default_sweep() -> Self {
+        Sweep {
+            enabled: false,
+            sweep_type: SweepType::Logarithmic,
+            start_freq: MIN_FREQ,
+            end_freq: MAX_FREQ,
+            duration: 4.0,
+            level: -12.0,
+        }
+    }
+
+    /// Clamps every value into range, after an edit or a load.
+    pub fn clamp(&mut self) {
+        self.start_freq = clamp_finite(self.start_freq, MIN_FREQ, MAX_FREQ, MIN_FREQ);
+        self.end_freq = clamp_finite(self.end_freq, MIN_FREQ, MAX_FREQ, MAX_FREQ);
+        if self.end_freq < self.start_freq {
+            std::mem::swap(&mut self.start_freq, &mut self.end_freq);
+        }
+        self.duration = clamp_finite(self.duration, 0.5, 60.0, 4.0);
+        self.level = clamp_finite(self.level, -48.0, 0.0, -12.0);
+    }
+}
+
 /// A graphic equalizer: one slider per fixed frequency.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Graphic {
@@ -157,6 +208,9 @@ pub struct EqState {
     /// Whether a limiter holds the output under full scale instead of letting it clip.
     #[serde(default = "enabled")]
     pub clip_protection: bool,
+    /// A diagnostic frequency sweep, off by default.
+    #[serde(default = "Sweep::default_sweep")]
+    pub sweep: Sweep,
 }
 
 fn default_bands() -> Vec<Band> {
@@ -182,6 +236,7 @@ impl Default for EqState {
             balance: 0.0,
             bypass: false,
             clip_protection: true,
+            sweep: Sweep::default_sweep(),
         }
     }
 }
@@ -264,6 +319,7 @@ impl EqState {
         self.bass_db = clamp_finite(self.bass_db, -SLIDER_MAX_DB, SLIDER_MAX_DB, 0.0);
         self.treble_db = clamp_finite(self.treble_db, -SLIDER_MAX_DB, SLIDER_MAX_DB, 0.0);
         self.balance = snap_balance(self.balance);
+        self.sweep.clamp();
     }
 }
 
@@ -662,6 +718,8 @@ impl Settings {
 
     fn sanitize(&mut self) {
         self.eq.bands.truncate(MAX_BANDS);
+        // A sweep is started by hand, never by a file written mid-sweep.
+        self.eq.sweep.enabled = false;
         self.eq.clamp();
         self.presets.iter_mut().for_each(|p| p.curve.sanitize());
         self.devices.values_mut().for_each(|d| d.curve.sanitize());
@@ -825,6 +883,34 @@ mod tests {
         assert_eq!(settings.active_index(), Some(user(0)));
         assert!(settings.switch_device("hp"));
         assert_eq!(settings.eq.preamp_db, -2.0);
+    }
+
+    #[test]
+    fn a_file_from_before_the_sweep_still_loads() {
+        let old = br#"{"bands":[],"preamp_db":-1.0,"bypass":false}"#;
+        let settings = Settings::parse(old).unwrap();
+        assert_eq!(settings.eq.sweep, Sweep::default_sweep());
+    }
+
+    #[test]
+    fn the_sweep_is_off_at_load_but_remembers_its_settings() {
+        let mut on = with_preamp(-2.0);
+        on.eq.sweep = Sweep {
+            enabled: true,
+            sweep_type: SweepType::Linear,
+            start_freq: 40.0,
+            end_freq: 12_000.0,
+            duration: 6.0,
+            level: -18.0,
+        };
+        let bytes = serde_json::to_vec(&on).unwrap();
+        let settings = Settings::parse(&bytes).unwrap();
+        assert!(!settings.eq.sweep.enabled, "a file written mid-sweep starts silent");
+        assert_eq!(settings.eq.sweep.sweep_type, SweepType::Linear);
+        assert_eq!(settings.eq.sweep.start_freq, 40.0);
+        assert_eq!(settings.eq.sweep.end_freq, 12_000.0);
+        assert_eq!(settings.eq.sweep.duration, 6.0);
+        assert_eq!(settings.eq.sweep.level, -18.0);
     }
 
     #[test]

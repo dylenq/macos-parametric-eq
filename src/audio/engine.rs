@@ -2,6 +2,7 @@ use super::aggregate::Aggregate;
 use super::devices;
 use super::tap::Tap;
 use crate::dsp::chain::{Chain, ChainParams};
+use crate::dsp::sweep::SweepGenerator;
 use objc2_core_audio::{
     AudioDeviceCreateIOProcID, AudioDeviceDestroyIOProcID, AudioDeviceIOProcID, AudioDeviceStart,
     AudioDeviceStop, AudioObjectID,
@@ -19,6 +20,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 pub struct Meters {
     input: AtomicU32,
     output: AtomicU32,
+    /// The frequency the sweep is at right now, in bits of f32, or 0 when idle.
+    sweep_freq: AtomicU32,
+    /// How far through the sweep we are, 0..1, packed as f32 bits.
+    sweep_progress: AtomicU32,
     /// Processing panicked. The IOProc plays silence from then on, until the engine is replaced.
     failed: AtomicBool,
 }
@@ -38,6 +43,21 @@ impl Meters {
         )
     }
 
+    /// How far the sweep has progressed, or None when there is no sweep. Two numbers:
+    /// the current frequency and the fraction through the sweep (0 to 1).
+    pub fn sweep_position(&self) -> Option<(f32, f32)> {
+        let freq = f32::from_bits(self.sweep_freq.load(Ordering::Relaxed));
+        if freq <= 0.0 {
+            return None;
+        }
+        let progress = f32::from_bits(self.sweep_progress.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+        Some((freq, progress))
+    }
+
+    fn set_sweep(slot: &AtomicU32, value: f32) {
+        slot.store(value.to_bits(), Ordering::Relaxed);
+    }
+
     pub fn failed(&self) -> bool {
         self.failed.load(Ordering::Relaxed)
     }
@@ -51,6 +71,10 @@ struct Callback {
     /// Output channels for left and right, counted from 0. No right channel means a mono mix.
     left: usize,
     right: Option<usize>,
+    /// The diagnostic sweep playing right now, if any. Created from the params and dropped
+    /// when the sweep ends or is turned off, at which point the tapped audio passes through.
+    sweep: Option<SweepGenerator>,
+    sample_rate: f64,
 }
 
 /// Running tap → EQ → output pipeline. Dropping it restores normal system audio.
@@ -109,6 +133,8 @@ impl Engine {
             meters: meters.clone(),
             left,
             right,
+            sweep: None,
+            sample_rate,
         }));
 
         let mut proc_id: AudioDeviceIOProcID = None;
@@ -258,6 +284,19 @@ fn process(callback: &mut Callback, input: &[AudioBuffer], output: &[AudioBuffer
         latest = Some(params);
     }
     if let Some(params) = latest {
+        // Starting, stopping or editing a sweep takes effect from the next sample.
+        match params.sweep {
+            Some(sweep) => {
+                let restart = callback
+                    .sweep
+                    .as_ref()
+                    .is_none_or(|open| open.params() != sweep);
+                if restart {
+                    callback.sweep = Some(SweepGenerator::new(sweep, callback.sample_rate));
+                }
+            }
+            None => callback.sweep = None,
+        }
         callback.chain.set_params(&params);
     }
 
@@ -281,8 +320,18 @@ fn process(callback: &mut Callback, input: &[AudioBuffer], output: &[AudioBuffer
         .min(out_r.map_or(usize::MAX, |c| c.frames));
     let (mut in_peak, mut out_peak) = (0f32, 0f32);
     for i in 0..frames {
+        // While a sweep plays, it replaces the tapped audio: the system is muted, so the
+        // tone is the only thing to listen to. When it ends, the tapped audio resumes.
+        let x = match callback.sweep.as_mut().filter(|sweep| !sweep.is_complete()) {
+            Some(sweep) => {
+                let sample = sweep.advance_sample();
+                [sample, sample]
+            }
+            None => unsafe {
+                [*in_l.data.add(i * in_l.stride), *in_r.data.add(i * in_r.stride)]
+            },
+        };
         unsafe {
-            let x = [*in_l.data.add(i * in_l.stride), *in_r.data.add(i * in_r.stride)];
             let y = callback.chain.tick(x);
             in_peak = in_peak.max(x[0].abs()).max(x[1].abs());
             out_peak = out_peak.max(y[0].abs()).max(y[1].abs());
@@ -293,6 +342,20 @@ fn process(callback: &mut Callback, input: &[AudioBuffer], output: &[AudioBuffer
                 }
                 None => *out_l.data.add(i * out_l.stride) = (y[0] + y[1]) * 0.5,
             }
+        }
+    }
+    // A sweep that has run to its end is dropped, so the next frame goes back to the tap.
+    if callback.sweep.as_ref().is_some_and(|sweep| sweep.is_complete()) {
+        callback.sweep = None;
+    }
+    match &callback.sweep {
+        Some(sweep) => {
+            Meters::set_sweep(&callback.meters.sweep_freq, sweep.current_freq());
+            Meters::set_sweep(&callback.meters.sweep_progress, sweep.progress());
+        }
+        None => {
+            Meters::set_sweep(&callback.meters.sweep_freq, 0.0);
+            Meters::set_sweep(&callback.meters.sweep_progress, 0.0);
         }
     }
     callback.chain.flush_denormals();

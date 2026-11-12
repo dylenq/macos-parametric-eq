@@ -1,19 +1,19 @@
 use super::presets;
 use super::theme::{self, Palette};
 use super::{
-    FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, format_balance, format_gain, graphic, parse_freq,
-    parse_gain,
+    FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, display_order, format_balance, format_freq,
+    format_gain, graphic, parse_freq, parse_gain,
 };
 use crate::dsp::graphic::COUNTS;
 use crate::dsp::response;
 use crate::state::{
     Band, EqState, FilterKind, MAX_BANDS, MAX_FREQ, MAX_GAIN_DB, MAX_Q, MIN_FREQ, MIN_Q, Mode,
-    SLIDER_MAX_DB, Settings, snap_balance,
+    SLIDER_MAX_DB, Settings, SweepType, snap_balance,
 };
 use eframe::egui::{
     Align, Button, CentralPanel, Checkbox, Color32, ComboBox, DragValue, Frame, Label, Layout,
-    Margin, Panel, Response, RichText, ScrollArea, Sense, Slider, Ui, WidgetInfo, WidgetType, pos2,
-    vec2,
+    Margin, Panel, ProgressBar, Response, RichText, ScrollArea, Sense, Slider, Ui, WidgetInfo,
+    WidgetType, pos2, vec2,
 };
 use std::cell::Cell;
 
@@ -41,27 +41,42 @@ pub struct Status {
     pub undo: bool,
 }
 
-/// Equalizer switch, preamp, headroom and presets, and on the trailing side the output
-/// level and device.
+/// Equalizer switch, sweep toggle, preamp, headroom and presets, and on the trailing side
+/// the output level and device.
 pub fn top_bar(
     ui: &mut Ui,
     settings: &mut Settings,
     level: &Level,
     status: &Status,
     sample_rate: f64,
+    sweep_open: bool,
     requests: &mut Requests,
 ) {
     let p = &theme::palette(ui);
     ui.horizontal(|ui| {
         let state = &mut settings.eq;
         let mut on = !state.bypass;
-        let toggled = switch(ui, &mut on, p)
+        let toggled = switch(ui, "Equalizer", &mut on, p)
             .on_hover_text("Turn off to compare with the unprocessed sound")
             .changed();
         // The label toggles too, like a system checkbox title.
         let label = ui.add(Label::new("Equalizer").sense(Sense::click()));
         if toggled || label.clicked() {
             state.bypass = !state.bypass;
+        }
+
+        ui.add_space(12.0);
+        // A sweep is a diagnostic tone; the settings live in a floating panel next to it.
+        let mut sweep_on = state.sweep.enabled;
+        let sweep_toggled = switch(ui, "Sweep", &mut sweep_on, p)
+            .on_hover_text("Play a sweeping tone through the EQ, to find resonances. The EQ is on while it plays.")
+            .changed();
+        let label = ui.add(Label::new("Sweep").sense(Sense::click()));
+        if sweep_toggled || label.clicked() {
+            state.sweep.enabled = !state.sweep.enabled;
+        }
+        if chevron(ui, sweep_open, "Sweep settings", p).clicked() {
+            requests.sweep_panel = Some(!sweep_open);
         }
 
         ui.add_space(16.0);
@@ -139,7 +154,7 @@ fn headroom(ui: &mut Ui, state: &mut EqState, sample_rate: f64, p: &Palette) {
 }
 
 /// A compact on/off switch in the system style.
-fn switch(ui: &mut Ui, on: &mut bool, p: &Palette) -> Response {
+fn switch(ui: &mut Ui, name: &'static str, on: &mut bool, p: &Palette) -> Response {
     let (rect, mut response) = ui.allocate_exact_size(vec2(34.0, 20.0), Sense::click());
     if response.clicked() {
         *on = !*on;
@@ -147,7 +162,7 @@ fn switch(ui: &mut Ui, on: &mut bool, p: &Palette) -> Response {
     }
     let enabled = ui.is_enabled();
     let value = *on;
-    response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, value, "Equalizer"));
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, value, name));
 
     let t = ui.ctx().animate_bool_responsive(response.id, *on);
     let track = if response.hovered() { p.control_active } else { p.control };
@@ -157,6 +172,82 @@ fn switch(ui: &mut Ui, on: &mut bool, p: &Palette) -> Response {
     let x = rect.left() + rect.height() / 2.0 + t * (rect.width() - rect.height());
     painter.circle_filled(pos2(x, rect.center().y), radius, Color32::WHITE);
     response
+}
+
+/// A small chevron button that opens or closes a side panel. Laid out like a button so it
+/// is easy to hit.
+fn chevron(ui: &mut Ui, open: bool, hint: &str, p: &Palette) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(16.0, 18.0), Sense::click());
+    let color = if response.hovered() { p.control_active } else { p.secondary };
+    let center = rect.center();
+    // Open points down, closed points right.
+    let half = 4.0;
+    let points = if open {
+        vec![center + vec2(-half, -half * 0.5), center + vec2(half, -half * 0.5), center + vec2(0.0, half)]
+    } else {
+        vec![center + vec2(-half * 0.5, -half), center + vec2(half, 0.0), center + vec2(-half * 0.5, half)]
+    };
+    ui.painter().add(eframe::egui::Shape::convex_polygon(points, color, eframe::egui::Stroke::NONE));
+    let enabled = ui.is_enabled();
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, hint));
+    response.on_hover_text(hint)
+}
+
+/// The sweep's settings, shown in a floating panel next to the Sweep switch: what it
+/// sweeps between, how fast, how loud, and how far along it is.
+pub fn sweep_panel(ui: &mut Ui, state: &mut EqState, playing: Option<(f32, f32)>) {
+    let p = &theme::palette(ui);
+    let sweep = &mut state.sweep;
+    ui.set_min_width(264.0);
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Sweep").strong());
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if let Some((freq, progress)) = playing {
+                let cap = format!("{} of {}", format_freq(freq), format_freq(sweep.end_freq));
+                ui.add(ProgressBar::new(progress).desired_width(96.0).text(cap));
+            }
+        });
+    });
+    ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Type").color(p.secondary));
+        ui.selectable_value(&mut sweep.sweep_type, SweepType::Logarithmic, "Logarithmic")
+            .on_hover_text("The tone spends equal time per octave, like an audio sweep");
+        ui.selectable_value(&mut sweep.sweep_type, SweepType::Linear, "Linear")
+            .on_hover_text("The tone gains the same number of Hz every second");
+    });
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("From").color(p.secondary));
+        ui.spacing_mut().slider_width = 64.0;
+        ui.add(
+            DragValue::new(&mut sweep.start_freq)
+                .range(MIN_FREQ..=MAX_FREQ)
+                .speed(1.0)
+                .max_decimals(0)
+                .suffix(" Hz"),
+        );
+        ui.label(RichText::new("to").color(p.secondary));
+        ui.add(
+            DragValue::new(&mut sweep.end_freq)
+                .range(MIN_FREQ..=MAX_FREQ)
+                .speed(1.0)
+                .max_decimals(0)
+                .suffix(" Hz"),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Duration").color(p.secondary));
+        ui.spacing_mut().slider_width = 144.0;
+        ui.add(Slider::new(&mut sweep.duration, 0.5..=15.0).step_by(0.5).suffix(" s"));
+    });
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Level").color(p.secondary));
+        ui.spacing_mut().slider_width = 144.0;
+        ui.add(Slider::new(&mut sweep.level, -48.0..=0.0).step_by(1.0).suffix(" dB").max_decimals(0))
+            .on_hover_text("How loud the sweep is, against full scale. Negative keeps it safe.");
+    });
+    ui.add_space(2.0);
+    ui.label(RichText::new("Plays in place of system audio, through the EQ.").small().color(p.secondary));
 }
 
 fn meter(ui: &mut Ui, level: &Level, p: &Palette) {
@@ -341,6 +432,8 @@ fn band_list(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, req
     let p = &theme::palette(ui);
     let mut delete = None;
     let note = Cell::new(None);
+    // Rows are listed by frequency, but storage order is kept for ids and edits.
+    let order = display_order(ui, &state.bands);
 
     row_frame(Color32::TRANSPARENT).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -372,28 +465,31 @@ fn band_list(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, req
                 );
             });
         }
-        for (index, band) in state.bands.iter_mut().enumerate() {
+        for (display, &index) in order.iter().enumerate() {
+            let band = &mut state.bands[index];
             let fill = if *selected == Some(index) {
                 p.row_selected
             } else {
                 Color32::TRANSPARENT
             };
             let row = row_frame(fill)
-                .show(ui, |ui| ui.horizontal(|ui| band_row(ui, index, band, p, &note)).inner)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| band_row(ui, index, display + 1, band, p, &note)).inner
+                })
                 .inner;
             if row.touched {
                 *selected = Some(index);
             }
             if row.delete {
-                delete = Some(index);
+                delete = Some((index, display + 1));
             }
         }
     });
 
-    if let Some(index) = delete {
+    if let Some((index, number)) = delete {
         state.bands.remove(index);
         *selected = None;
-        requests.undoable = Some(format!("Band {} deleted", index + 1));
+        requests.undoable = Some(format!("Band {number} deleted"));
     }
     if let Some(message) = note.get() {
         requests.notice = Some(message.into());
@@ -431,6 +527,7 @@ fn checked<'a>(
 fn band_row(
     ui: &mut Ui,
     index: usize,
+    number: usize,
     band: &mut Band,
     p: &Palette,
     note: &Cell<Option<&'static str>>,
@@ -442,7 +539,7 @@ fn band_row(
 
     track(&ui.add_sized(
         [NUMBER_WIDTH, ROW_HEIGHT],
-        Label::new(RichText::new((index + 1).to_string()).color(p.secondary))
+        Label::new(RichText::new(number.to_string()).color(p.secondary))
             .sense(Sense::click()),
     ));
     ui.scope(|ui| {

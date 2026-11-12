@@ -1,5 +1,6 @@
 use super::biquad::{BiquadState, Coeffs};
 use super::stages::{MAX_STAGES, Stages, balance_db};
+use super::sweep::SweepParams;
 use crate::state::EqState;
 
 /// How often (in frames) filter coefficients step toward their targets.
@@ -20,17 +21,22 @@ pub struct ChainParams {
     pub bypass: bool,
     /// Turn the output down for as long as it would otherwise exceed full scale.
     pub limit: bool,
+    /// A diagnostic sweep being played right now, if any. The audio thread generates
+    /// its samples instead of using the tapped audio.
+    pub sweep: Option<SweepParams>,
 }
 
 impl ChainParams {
     pub fn from_state(state: &EqState, sample_rate: f64) -> Self {
         let balance = balance_db(state.balance);
         let gain = |channel: usize| 10f64.powf((state.preamp_db + balance[channel]) as f64 / 20.0);
+        let sweep = state.sweep.enabled.then(|| SweepParams::from_state(&state.sweep));
         ChainParams {
             stages: Stages::new(state, sample_rate),
             gain: [gain(0), gain(1)],
             bypass: state.bypass,
             limit: state.clip_protection,
+            sweep,
         }
     }
 }
