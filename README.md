@@ -41,6 +41,12 @@ output device and volume keys keep working as usual.
 - **Interactive curve.** Drag a band to set frequency and gain, scroll to change Q,
   double-click to add a band, right-click to change its type or invert its gain. Values
   snap to round numbers as you drag, and the arrow keys nudge the selected band.
+- **Frequency sweep.** Play a sine sweep through the EQ, in place of system audio, to
+  hear resonances in your speakers or headphones. Logarithmic or linear, with its range,
+  length and level in the panel next to the Sweep switch. The curve marks where it is,
+  and it switches itself off at the end.
+- **Bands in frequency order.** The band list and the numbers on the curve run from low
+  to high, however the bands were added.
 - **Bass, treble and balance.** Shelves at 100 Hz and 10 kHz (±12 dB) and a left/right
   balance that turns the other side down, in both modes.
 - **Presets.** Four built-in presets (Flat, Bass, Treble and Vocal), and your own saved by
@@ -101,6 +107,7 @@ normal audio immediately.
 | Switch between parametric and graphic | ⌘1, ⌘2, or the buttons above the bands |
 | Reset a slider, bass, treble, balance or the preamp | Double-click it |
 | Compare with the original sound | Toggle **Equalizer**, or press ⌘B |
+| Find resonances | Toggle **Sweep**; set its range, length and level with the arrow next to it |
 | Undo, redo | ⌘Z, ⇧⌘Z |
 | Save the curve as a preset | Choose **Save As…** from the preset menu, or press ⇧⌘S |
 | Update the current preset | ⌘S |
