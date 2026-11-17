@@ -1,0 +1,47 @@
+# Code scanning. The Rust code calls Apple frameworks behind macOS-only cfgs, so it is
+# analysed on macOS, where it resolves; GitHub's default setup ran it on Linux, which
+# left much of it unresolved and reported low analysis quality as a configuration error.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: rust
+            os: macos-latest
+          - language: actions
+            os: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        if: matrix.language == 'rust'
+        run: |
+          rustup toolchain install stable --profile minimal --component rust-src
+          rustup default stable
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
