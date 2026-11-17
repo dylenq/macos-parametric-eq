@@ -24,6 +24,8 @@ pub struct Meters {
     sweep_freq: AtomicU32,
     /// How far through the sweep we are, 0..1, packed as f32 bits.
     sweep_progress: AtomicU32,
+    /// The run of the last sweep played to its end, 0 for none.
+    sweep_finished: AtomicU32,
     /// Processing panicked. The IOProc plays silence from then on, until the engine is replaced.
     failed: AtomicBool,
 }
@@ -54,6 +56,11 @@ impl Meters {
         Some((freq, progress))
     }
 
+    /// The run of the last sweep that played to its end, or 0.
+    pub fn sweep_finished(&self) -> u32 {
+        self.sweep_finished.load(Ordering::Relaxed)
+    }
+
     fn set_sweep(slot: &AtomicU32, value: f32) {
         slot.store(value.to_bits(), Ordering::Relaxed);
     }
@@ -71,8 +78,9 @@ struct Callback {
     /// Output channels for left and right, counted from 0. No right channel means a mono mix.
     left: usize,
     right: Option<usize>,
-    /// The diagnostic sweep playing right now, if any. Created from the params and dropped
-    /// when the sweep ends or is turned off, at which point the tapped audio passes through.
+    /// The diagnostic sweep, if one is on. Created from the params and dropped when it is
+    /// turned off. One played to its end stays, silent, so the same run cannot start again;
+    /// the tapped audio passes through meanwhile.
     sweep: Option<SweepGenerator>,
     sample_rate: f64,
 }
@@ -293,6 +301,7 @@ fn process(callback: &mut Callback, input: &[AudioBuffer], output: &[AudioBuffer
                     .is_none_or(|open| open.params() != sweep);
                 if restart {
                     callback.sweep = Some(SweepGenerator::new(sweep, callback.sample_rate));
+                    callback.meters.sweep_finished.store(0, Ordering::Relaxed);
                 }
             }
             None => callback.sweep = None,
@@ -344,18 +353,17 @@ fn process(callback: &mut Callback, input: &[AudioBuffer], output: &[AudioBuffer
             }
         }
     }
-    // A sweep that has run to its end is dropped, so the next frame goes back to the tap.
-    if callback.sweep.as_ref().is_some_and(|sweep| sweep.is_complete()) {
-        callback.sweep = None;
-    }
     match &callback.sweep {
-        Some(sweep) => {
+        Some(sweep) if !sweep.is_complete() => {
             Meters::set_sweep(&callback.meters.sweep_freq, sweep.current_freq());
             Meters::set_sweep(&callback.meters.sweep_progress, sweep.progress());
         }
-        None => {
+        finished => {
             Meters::set_sweep(&callback.meters.sweep_freq, 0.0);
             Meters::set_sweep(&callback.meters.sweep_progress, 0.0);
+            if let Some(sweep) = finished {
+                callback.meters.sweep_finished.store(sweep.params().run, Ordering::Relaxed);
+            }
         }
     }
     callback.chain.flush_denormals();
@@ -366,6 +374,60 @@ fn process(callback: &mut Callback, input: &[AudioBuffer], output: &[AudioBuffer
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Runs `blocks` IO cycles of 512 stereo frames of silent input and returns the
+    /// output's peak.
+    fn run(callback: &mut Callback, blocks: usize) -> f32 {
+        let mut input = vec![0f32; 1024];
+        let mut output = vec![0f32; 1024];
+        let buffer = |data: &mut Vec<f32>| AudioBuffer {
+            mNumberChannels: 2,
+            mDataByteSize: (data.len() * 4) as u32,
+            mData: data.as_mut_ptr().cast(),
+        };
+        let mut peak = 0f32;
+        for _ in 0..blocks {
+            let (i, o) = ([buffer(&mut input)], [buffer(&mut output)]);
+            silence(&o);
+            process(callback, &i, &o);
+            peak = output.iter().fold(peak, |m, s| m.max(s.abs()));
+        }
+        peak
+    }
+
+    #[test]
+    fn a_sweep_played_to_its_end_does_not_play_again() {
+        let mut state = crate::state::EqState::default();
+        state.sweep.duration = 0.5;
+        state.sweep.toggle();
+        let (mut producer, consumer) = rtrb::RingBuffer::new(4);
+        let meters = Arc::new(Meters::default());
+        let mut callback = Callback {
+            chain: Chain::new(48_000.0, &ChainParams::from_state(&state, 48_000.0)),
+            params: consumer,
+            meters: meters.clone(),
+            left: 0,
+            right: Some(1),
+            sweep: None,
+            sample_rate: 48_000.0,
+        };
+        let params = ChainParams::from_state(&state, 48_000.0);
+        producer.push(params).unwrap();
+        assert!(run(&mut callback, 10) > 0.1, "the sweep plays");
+        assert!(meters.sweep_position().is_some());
+        run(&mut callback, 50);
+        assert_eq!(meters.sweep_finished(), state.sweep.run);
+        assert!(meters.sweep_position().is_none());
+        // The same run again, as any later edit would send while the switch is still on.
+        producer.push(params).unwrap();
+        assert_eq!(run(&mut callback, 20), 0.0, "a finished run stays finished");
+        // Switched on again: a new run plays.
+        state.sweep.toggle();
+        state.sweep.toggle();
+        producer.push(ChainParams::from_state(&state, 48_000.0)).unwrap();
+        assert!(run(&mut callback, 10) > 0.1, "a new run plays");
+        assert_eq!(meters.sweep_finished(), 0);
+    }
 
     #[test]
     fn start_errors_say_what_went_wrong() {

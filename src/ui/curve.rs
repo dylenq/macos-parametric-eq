@@ -284,9 +284,8 @@ pub fn show(
     if let Some((freq, progress)) = sweep {
         let freq = freq.clamp(MIN_FREQ, MAX_FREQ);
         let x = axes.x(freq);
-        let curve_y = response::total_db(state, &[freq], sample_rate)
-            .first()
-            .map(|&db| axes.y(db));
+        let db = crate::dsp::stages::Stages::new(state, sample_rate).magnitude_db(freq as f64, sample_rate);
+        let curve_y = Some(axes.y(db as f32));
         plot.vline(x, axes.rect.y_range(), Stroke::new(1.5, accent.gamma_multiply(0.65)));
         if let Some(y) = curve_y {
             plot.circle_filled(pos2(x, y), 6.0, accent.gamma_multiply(0.35));

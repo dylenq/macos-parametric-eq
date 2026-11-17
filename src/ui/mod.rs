@@ -81,6 +81,8 @@ pub struct View {
     pub sweep: Option<(f32, f32)>,
     /// Whether the sweep settings panel is open.
     pub sweep_open: bool,
+    /// A sweep can start: the engine is running. Until something has played it is not.
+    pub sweep_ready: bool,
 }
 
 /// Lays out the window: the top bar, the curve, and the bands or sliders under it. Returns
@@ -94,7 +96,7 @@ pub fn window(ui: &mut Ui, settings: &mut Settings, selected: &mut Option<usize>
         .frame(panel(Margin { left: 16, right: 16, top: 38, bottom: 10 }))
         .show_separator_line(false)
         .show(ui, |ui| {
-            controls::top_bar(ui, settings, &view.level, &view.status, view.sample_rate, view.sweep_open, &mut requests);
+            controls::top_bar(ui, settings, view, &mut requests);
             if view.silent {
                 ui.label(
                     RichText::new(
@@ -342,6 +344,7 @@ mod frame_tests {
                     keys: true,
                     sweep: None,
                     sweep_open: false,
+                    sweep_ready: true,
                 };
                 curve_height = super::window(ui, settings, selected, &view).1.height();
             });

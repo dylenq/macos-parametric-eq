@@ -74,6 +74,7 @@ fn render(look: Theme, (mut settings, mut selected): (Settings, Option<usize>)) 
                 keys: false,
                 sweep: None,
                 sweep_open: false,
+                sweep_ready: true,
             };
             super::window(ui, &mut settings, &mut selected, &view);
             // macOS draws these over the transparent title bar.

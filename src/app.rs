@@ -114,8 +114,6 @@ pub struct App {
     quitting: bool,
     /// The sweep parameter panel is open.
     sweep_open: bool,
-    /// The current sweep has been seen playing, so its end can be told from its start.
-    sweep_seen: bool,
 }
 
 impl App {
@@ -149,7 +147,6 @@ impl App {
             last_accent_poll: Instant::now(),
             history: History::default(),
             sweep_open: false,
-            sweep_seen: false,
             menu: AppMenu::install(ctx)
                 .inspect_err(|error| eprintln!("could not build the menu bar: {error}"))
                 .ok(),
@@ -656,6 +653,15 @@ impl eframe::App for App {
                 self.show_window(ctx);
             }
         }
+        // A sweep plays only through a running engine, and turns itself off once it has
+        // played to the end. Checked here, so it happens with the window closed too.
+        let sweep = self.settings.eq.sweep;
+        if sweep.enabled
+            && self.running.as_ref().is_none_or(|r| r.engine.meters.sweep_finished() == sweep.run)
+        {
+            self.settings.eq.sweep.enabled = false;
+            self.mark_changed();
+        }
         let pointer_down = !self.hidden && ctx.input(|i| i.pointer.any_down());
         self.run_commands(ctx, pointer_down);
         self.sync_menu(ctx);
@@ -685,18 +691,7 @@ impl eframe::App for App {
         }
 
         let before = self.settings.clone();
-        // A sweep turns itself off when it has played to the end.
         let sweep = self.running.as_ref().and_then(|r| r.engine.meters.sweep_position());
-        if sweep.is_some() {
-            self.sweep_seen = true;
-        } else if !self.settings.eq.sweep.enabled {
-            // Nothing playing and the toggle is off: ready for the next sweep.
-            self.sweep_seen = false;
-        } else if self.sweep_seen {
-            // Seen playing, now not: the sweep ran to its end.
-            self.sweep_seen = false;
-            self.settings.eq.sweep.enabled = false;
-        }
         // A file dropped while a sheet is open would change the presets under it.
         let dropped = ui.input(|i| i.raw.dropped_files.clone());
         if self.dialog.is_none() {
@@ -722,6 +717,7 @@ impl eframe::App for App {
             keys: self.dialog.is_none(),
             sweep,
             sweep_open: self.sweep_open,
+            sweep_ready: self.running.is_some(),
         };
         let (requests, _) = ui::window(ui, &mut self.settings, &mut self.selected, &view);
 

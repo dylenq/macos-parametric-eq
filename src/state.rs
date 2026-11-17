@@ -118,6 +118,10 @@ pub struct Sweep {
     pub duration: f32,
     /// The sweep's level against full scale, in dB. Negative.
     pub level: f32,
+    /// Counts the sweeps started, so the audio thread can tell a new one from one it has
+    /// already played to the end. Not saved.
+    #[serde(skip)]
+    pub run: u32,
 }
 
 impl Sweep {
@@ -130,16 +134,24 @@ impl Sweep {
             end_freq: MAX_FREQ,
             duration: 4.0,
             level: -12.0,
+            run: 0,
+        }
+    }
+
+    /// Turns the sweep on as a new run, or off.
+    pub fn toggle(&mut self) {
+        self.enabled = !self.enabled;
+        if self.enabled {
+            self.run = self.run.wrapping_add(1).max(1);
         }
     }
 
     /// Clamps every value into range, after an edit or a load.
     pub fn clamp(&mut self) {
         self.start_freq = clamp_finite(self.start_freq, MIN_FREQ, MAX_FREQ, MIN_FREQ);
+        // A sweep may run down as well as up, so the ends are not put in order: swapping
+        // them would also make the From field jump while it is dragged past To.
         self.end_freq = clamp_finite(self.end_freq, MIN_FREQ, MAX_FREQ, MAX_FREQ);
-        if self.end_freq < self.start_freq {
-            std::mem::swap(&mut self.start_freq, &mut self.end_freq);
-        }
         self.duration = clamp_finite(self.duration, 0.5, 60.0, 4.0);
         self.level = clamp_finite(self.level, -48.0, 0.0, -12.0);
     }
@@ -902,6 +914,7 @@ mod tests {
             end_freq: 12_000.0,
             duration: 6.0,
             level: -18.0,
+            run: 3,
         };
         let bytes = serde_json::to_vec(&on).unwrap();
         let settings = Settings::parse(&bytes).unwrap();

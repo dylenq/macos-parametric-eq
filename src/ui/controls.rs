@@ -1,7 +1,7 @@
 use super::presets;
 use super::theme::{self, Palette};
 use super::{
-    FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, display_order, format_balance, format_freq,
+    FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, View, display_order, format_balance, format_freq,
     format_gain, graphic, parse_freq, parse_gain,
 };
 use crate::dsp::graphic::COUNTS;
@@ -43,15 +43,9 @@ pub struct Status {
 
 /// Equalizer switch, sweep toggle, preamp, headroom and presets, and on the trailing side
 /// the output level and device.
-pub fn top_bar(
-    ui: &mut Ui,
-    settings: &mut Settings,
-    level: &Level,
-    status: &Status,
-    sample_rate: f64,
-    sweep_open: bool,
-    requests: &mut Requests,
-) {
+pub fn top_bar(ui: &mut Ui, settings: &mut Settings, view: &View, requests: &mut Requests) {
+    let View { level, status, sample_rate, sweep_open, sweep_ready, .. } = view;
+    let (sample_rate, sweep_open, sweep_ready) = (*sample_rate, *sweep_open, *sweep_ready);
     let p = &theme::palette(ui);
     ui.horizontal(|ui| {
         let state = &mut settings.eq;
@@ -67,14 +61,19 @@ pub fn top_bar(
 
         ui.add_space(12.0);
         // A sweep is a diagnostic tone; the settings live in a floating panel next to it.
-        let mut sweep_on = state.sweep.enabled;
-        let sweep_toggled = switch(ui, "Sweep", &mut sweep_on, p)
-            .on_hover_text("Play a sweeping tone through the EQ, to find resonances. The EQ is on while it plays.")
-            .changed();
-        let label = ui.add(Label::new("Sweep").sense(Sense::click()));
-        if sweep_toggled || label.clicked() {
-            state.sweep.enabled = !state.sweep.enabled;
-        }
+        // EQ starts processing once something plays, and the tone needs it running.
+        let sweep = &mut state.sweep;
+        ui.add_enabled_ui(sweep_ready || sweep.enabled, |ui| {
+            let mut sweep_on = sweep.enabled;
+            let sweep_toggled = switch(ui, "Sweep", &mut sweep_on, p)
+                .on_hover_text("Play a sweeping tone through the EQ, to find resonances. The EQ is on while it plays.")
+                .on_disabled_hover_text("Available once EQ is processing audio. Play something first.")
+                .changed();
+            let label = ui.add(Label::new("Sweep").sense(Sense::click()));
+            if sweep_toggled || label.clicked() {
+                sweep.toggle();
+            }
+        });
         if chevron(ui, sweep_open, "Sweep settings", p).clicked() {
             requests.sweep_panel = Some(!sweep_open);
         }

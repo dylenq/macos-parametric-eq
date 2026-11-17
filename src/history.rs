@@ -20,10 +20,13 @@ impl Snapshot {
     /// Bypass and clip protection are ways of listening, not edits, so they stay as they
     /// are. The mode comes back with the rest, so an undo always shows what it changed.
     fn restore(self, settings: &mut Settings) {
-        let (bypass, clip_protection) = (settings.eq.bypass, settings.eq.clip_protection);
+        let eq = &settings.eq;
+        let (bypass, clip_protection, sweep) = (eq.bypass, eq.clip_protection, eq.sweep);
         settings.eq = self.eq;
         settings.eq.bypass = bypass;
         settings.eq.clip_protection = clip_protection;
+        // Nor is a sweep, which undoing an edit made while one played would start again.
+        settings.eq.sweep = sweep;
         // The preset may have been deleted since.
         settings.active_preset = self.active_preset;
         if settings.active_index().is_none() {
@@ -187,6 +190,21 @@ mod tests {
         assert!(history.undo(&mut edited));
         assert_eq!(edited.eq.preamp_db, 0.0);
         assert!(edited.eq.bypass);
+    }
+
+    #[test]
+    fn undo_does_not_start_a_sweep_again() {
+        let mut history = History::default();
+        let mut settings = Settings::default();
+        settings.eq.sweep.toggle();
+        let before = settings.clone();
+        settings.eq.preamp_db = -3.0;
+        history.observe(&before, &settings, false);
+        history.observe(&settings, &settings, false);
+        settings.eq.sweep.toggle();
+        assert!(history.undo(&mut settings));
+        assert_eq!(settings.eq.preamp_db, 0.0);
+        assert!(!settings.eq.sweep.enabled);
     }
 
     #[test]
