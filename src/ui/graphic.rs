@@ -48,7 +48,8 @@ pub fn sliders(ui: &mut Ui, graphic: &mut Graphic) {
             .id_salt(("graphic", count))
             .auto_shrink([false, true])
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
+                // The track's height leaves room for the labels and nothing else, so no gaps.
+                ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 ui.spacing_mut().slider_width = track.max(40.0);
                 for (index, (gain, &freq)) in graphic.gains_db.iter_mut().zip(centres).enumerate() {
                     ui.allocate_ui_with_layout(
@@ -67,13 +68,21 @@ pub fn sliders(ui: &mut Ui, graphic: &mut Graphic) {
                                 );
                             }
                             ui.add_space(8.0);
-                            let slider = ui.add(
-                                Slider::new(gain, -SLIDER_MAX_DB..=SLIDER_MAX_DB)
-                                    .vertical()
-                                    .step_by(0.5)
-                                    .show_value(false)
-                                    .trailing_fill(false),
-                            );
+                            // egui puts a vertical slider at the left of its space, so it is
+                            // indented to sit in the middle of the column, under its labels.
+                            let thickness = ui.spacing().interact_size.y;
+                            let slider = ui
+                                .horizontal(|ui| {
+                                    ui.add_space(((column - thickness) / 2.0).max(0.0));
+                                    ui.add(
+                                        Slider::new(gain, -SLIDER_MAX_DB..=SLIDER_MAX_DB)
+                                            .vertical()
+                                            .step_by(0.5)
+                                            .show_value(false)
+                                            .trailing_fill(false),
+                                    )
+                                })
+                                .inner;
                             if slider.double_clicked() {
                                 *gain = 0.0;
                             }

@@ -81,7 +81,7 @@ pub fn top_bar(ui: &mut Ui, settings: &mut Settings, view: &View, requests: &mut
         ui.add_space(16.0);
         ui.label(RichText::new("Preamp").color(p.secondary));
         // Shorter than elsewhere, to leave the device name room.
-        ui.spacing_mut().slider_width = 110.0;
+        ui.spacing_mut().slider_width = 84.0;
         let preamp = ui
             .add(
                 Slider::new(&mut state.preamp_db, -MAX_GAIN_DB..=MAX_GAIN_DB)
@@ -202,8 +202,7 @@ pub fn sweep_panel(ui: &mut Ui, state: &mut EqState, playing: Option<(f32, f32)>
         ui.label(RichText::new("Sweep").strong());
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if let Some((freq, progress)) = playing {
-                let cap = format!("{} of {}", format_freq(freq), format_freq(sweep.end_freq));
-                ui.add(ProgressBar::new(progress).desired_width(96.0).text(cap));
+                ui.add(ProgressBar::new(progress).desired_width(120.0).text(format_freq(freq)));
             }
         });
     });

@@ -172,9 +172,12 @@ fn fit_points(centres: &[f32], sample_rate: f64) -> Vec<(f64, f64)> {
     points.push((last, SLIDER_WEIGHT));
     for octaves in BEYOND_OCTAVES {
         points.push((first / 2f64.powf(octaves), 1.0));
-        points.push((last * 2f64.powf(octaves), 1.0));
+        // Above the last slider the curve stays flat. Points past the top of the range
+        // are pulled down to it rather than dropped, or nothing would hold the response
+        // between the last slider and Nyquist, and raising that slider alone overshot there.
+        points.push(((last * 2f64.powf(octaves)).min(top), 1.0));
     }
-    points.retain(|&(f, _)| f < top && f >= 10.0);
+    points.retain(|&(f, _)| f <= top && f >= 10.0);
     points
 }
 
@@ -405,6 +408,24 @@ mod tests {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn raising_the_top_slider_does_not_overshoot_near_nyquist() {
+        for sample_rate in [44_100.0, 48_000.0, 96_000.0] {
+            for count in COUNTS {
+                let mut gains = vec![0.0; count as usize];
+                *gains.last_mut().unwrap() = 6.0;
+                let filters = design(count, &gains, sample_rate);
+                // Up to 20 kHz, or Nyquist if lower: the range the curve shows, and ears hear.
+                let top = (sample_rate * 0.49).min(20_000.0);
+                let worst = (0..400)
+                    .map(|k| 20.0 * (top / 20.0).powf(k as f64 / 399.0))
+                    .map(|f| response(&filters, f, sample_rate))
+                    .fold(f64::MIN, f64::max);
+                assert!(worst < 7.0, "{count} bands at {sample_rate}: peaks at {worst:.1} dB");
             }
         }
     }

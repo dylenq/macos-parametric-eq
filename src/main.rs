@@ -190,7 +190,7 @@ fn window() {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("EQ")
-            .with_inner_size([920.0, 640.0])
+            .with_inner_size([1120.0, 640.0])
             .with_min_inner_size([640.0, 440.0])
             // Content runs under a transparent title bar so the window reads as one surface.
             .with_fullsize_content_view(true)

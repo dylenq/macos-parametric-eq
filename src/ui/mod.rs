@@ -124,12 +124,13 @@ pub fn window(ui: &mut Ui, settings: &mut Settings, selected: &mut Option<usize>
         })
         .response
         .rect;
-    // A floating panel for the sweep's settings, next to the button that opens it.
+    // A floating panel for the sweep's settings, low on the right where the band list
+    // leaves room, so it never hides the curve the sweep is drawn on.
     if view.sweep_open {
         let mut open = true;
         Window::new("Sweep settings")
             .id(eframe::egui::Id::new("sweep-settings"))
-            .anchor(Align2::RIGHT_TOP, vec2(-16.0, 96.0))
+            .anchor(Align2::RIGHT_BOTTOM, vec2(-16.0, -64.0))
             .resizable(false)
             .collapsible(false)
             .open(&mut open)

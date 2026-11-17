@@ -15,7 +15,7 @@ use egui_kittest::Harness;
 use image::RgbaImage;
 
 /// The window's default size in points, drawn at Retina scale.
-const SIZE: egui::Vec2 = vec2(920.0, 640.0);
+const SIZE: egui::Vec2 = vec2(1120.0, 640.0);
 const SCALE: f32 = 2.0;
 /// Window corner radius in points, as macOS draws it.
 const CORNER: f32 = 20.5;
