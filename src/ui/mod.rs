@@ -120,7 +120,9 @@ pub fn window(ui: &mut Ui, settings: &mut Settings, selected: &mut Option<usize>
     let curve = CentralPanel::default()
         .frame(panel(Margin { left: 16, right: 16, top: 4, bottom: 4 }))
         .show(ui, |ui| {
-            curve::show(ui, &mut settings.eq, selected, view.sample_rate, view.keys, view.sweep, &mut requests);
+            let (eq, marks) = settings.eq_and_marks();
+            let sweeping = curve::Sweeping { position: view.sweep, marks };
+            curve::show(ui, eq, selected, view.sample_rate, view.keys, sweeping, &mut requests);
         })
         .response
         .rect;
@@ -130,12 +132,13 @@ pub fn window(ui: &mut Ui, settings: &mut Settings, selected: &mut Option<usize>
         let mut open = true;
         Window::new("Sweep settings")
             .id(eframe::egui::Id::new("sweep-settings"))
-            .anchor(Align2::RIGHT_BOTTOM, vec2(-16.0, -64.0))
+            .anchor(Align2::RIGHT_BOTTOM, vec2(-16.0, -16.0))
             .resizable(false)
             .collapsible(false)
             .open(&mut open)
             .show(ui.ctx(), |ui| {
-                controls::sweep_panel(ui, &mut settings.eq, view.sweep);
+                let (eq, marks) = settings.eq_and_marks();
+                controls::sweep_panel(ui, eq, marks, view.sweep);
             });
         requests.sweep_panel = Some(open);
     }
@@ -291,6 +294,76 @@ mod tests {
         assert_eq!(parse_gain("0,707"), Some(0.707));
         assert_eq!(parse_gain("-2,125 dB"), Some(-2.125));
         assert_eq!(parse_freq("1,500k"), Some(1_500.0));
+    }
+}
+
+#[cfg(test)]
+mod mark_tests {
+    use super::controls::{Level, Status};
+    use super::{View, theme};
+    use crate::dsp::sweep::mark_frequency;
+    use crate::state::{FilterKind, Settings};
+    use eframe::egui::{self, Event, Key, Modifiers, PointerButton, RawInput, Rect, pos2, vec2};
+
+    const SIZE: egui::Vec2 = vec2(1120.0, 640.0);
+
+    /// Runs one frame of the window with a sweep `progress` of the way through, feeding it
+    /// `events`. Returns the rect the curve's panel was given.
+    fn frame(ctx: &egui::Context, settings: &mut Settings, progress: f32, events: Vec<Event>) -> Rect {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), SIZE)),
+            events,
+            ..RawInput::default()
+        };
+        let mut curve = Rect::NOTHING;
+        let mut selected = None;
+        let mut output = ctx.run_ui(input, |ui| {
+            let view = View {
+                level: Level { output_db: -20.0, clipped: false },
+                status: Status { text: "Speakers".into(), undo: false },
+                silent: false,
+                sample_rate: 48_000.0,
+                keys: true,
+                sweep: Some((1_000.0, progress)),
+                sweep_open: false,
+                sweep_ready: true,
+            };
+            curve = super::window(ui, settings, &mut selected, &view).1;
+        });
+        output.textures_delta.clear();
+        curve
+    }
+
+    #[test]
+    fn space_marks_the_peak_and_a_click_on_its_pin_adds_a_cut() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let mut settings = Settings::default();
+        settings.eq.sweep.enabled = true;
+        settings.eq.sweep.duration = 10.0;
+        for _ in 0..3 {
+            frame(&ctx, &mut settings, 0.5, Vec::new());
+        }
+        let space = Event::Key { key: Key::Space, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+        let curve = frame(&ctx, &mut settings, 0.5, vec![space]);
+        let expected = mark_frequency(&settings.eq.sweep, 0.5);
+        assert_eq!(settings.marks(), [expected]);
+
+        // The pin sits on the plot's bottom edge, at the mark's place on the log axis. The
+        // plot is the curve panel less its margins (16 at the sides, 4 above and below),
+        // the 30-point dB scale on the left and the 20-point frequency labels below.
+        let plot = Rect::from_min_max(curve.min + vec2(16.0 + 30.0, 4.0), curve.max - vec2(16.0, 4.0 + 20.0));
+        let t = (expected / 20.0).ln() / 1_000f32.ln();
+        let pin = pos2(plot.left() + t * plot.width(), plot.bottom() - 12.0);
+        let bands = settings.eq.bands.len();
+        let press = |pressed| Event::PointerButton { pos: pin, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        frame(&ctx, &mut settings, 0.5, vec![Event::PointerMoved(pin)]);
+        frame(&ctx, &mut settings, 0.5, vec![press(true)]);
+        frame(&ctx, &mut settings, 0.5, vec![press(false)]);
+        assert_eq!(settings.eq.bands.len(), bands + 1);
+        let cut = settings.eq.bands.last().unwrap();
+        assert_eq!((cut.kind, cut.gain_db, cut.q), (FilterKind::Peak, -3.0, 4.0));
+        assert!((cut.freq / expected).log2().abs() < 0.01, "{} vs {expected}", cut.freq);
     }
 }
 

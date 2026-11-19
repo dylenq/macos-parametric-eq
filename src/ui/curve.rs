@@ -1,8 +1,10 @@
 use super::theme::{self, CAPTION, Palette};
 use super::{
-    FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, display_order, format_freq, format_gain, snap_freq,
-    snap_gain,
+    FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, display_order, format_freq, format_gain, short_freq,
+    snap_freq, snap_gain,
 };
+use crate::dsp::sweep::mark_frequency;
+use crate::state::add_mark;
 use crate::dsp::response;
 use crate::state::{
     Band, EqState, FilterKind, MAX_BANDS, MAX_FREQ, MAX_GAIN_DB, MAX_Q, MIN_FREQ, MIN_Q, Mode,
@@ -161,6 +163,13 @@ fn chip(painter: &Painter, anchor: Pos2, above: bool, text: String, bounds: Rect
     painter.galley(rect.min + vec2(6.0, 3.0), galley, p.plot);
 }
 
+/// The sweep as the curve shows it: where it is now, as (frequency, fraction played), and
+/// the peaks marked for the current output.
+pub struct Sweeping<'a> {
+    pub position: Option<(f32, f32)>,
+    pub marks: &'a mut Vec<f32>,
+}
+
 /// Draws the frequency response and handles editing it. In parametric mode, drag a node to
 /// set frequency and gain, scroll over it to change Q, right-click for filter type, and
 /// double-click empty space to add a band. In graphic mode, drag a slider's point up or
@@ -172,7 +181,7 @@ pub fn show(
     selected: &mut Option<usize>,
     sample_rate: f64,
     keys: bool,
-    sweep: Option<(f32, f32)>,
+    sweeping: Sweeping,
     requests: &mut Requests,
 ) {
     let p = &theme::palette(ui);
@@ -281,7 +290,7 @@ pub fn show(
     }
 
     // The diagnostic sweep, as a line through the curve and a caption saying where it is.
-    if let Some((freq, progress)) = sweep {
+    if let Some((freq, progress)) = sweeping.position {
         let freq = freq.clamp(MIN_FREQ, MAX_FREQ);
         let x = axes.x(freq);
         let db = crate::dsp::stages::Stages::new(state, sample_rate).magnitude_db(freq as f64, sample_rate);
@@ -306,6 +315,8 @@ pub fn show(
         painter.galley(rect.min + vec2(6.0, 3.0), galley, p.plot);
     }
 
+    marks(ui, &painter, &axes, state, selected, sweeping, keys, requests, p);
+
     match state.mode {
         Mode::Parametric => {
             if keys {
@@ -314,6 +325,94 @@ pub fn show(
             bands(ui, &painter, &axes, state, selected, &background, requests, p)
         }
         Mode::Graphic => sliders(ui, &painter, &axes, state, p),
+    }
+}
+
+/// Peaks marked during sweeps, as pins along the bottom of the plot, and the ways to mark
+/// one (Space or M, or the Mark button, while a sweep plays) and to act on it: a click adds
+/// a narrow cut there, a right-click removes it.
+#[allow(clippy::too_many_arguments)]
+fn marks(
+    ui: &mut Ui,
+    painter: &Painter,
+    axes: &Axes,
+    state: &mut EqState,
+    selected: &mut Option<usize>,
+    sweeping: Sweeping,
+    keys: bool,
+    requests: &mut Requests,
+    p: &Palette,
+) {
+    let Sweeping { position, marks } = sweeping;
+    if let Some((_, progress)) = position {
+        // The keys belong to a text field or a menu while one is open.
+        let free = keys && ui.ctx().memory(|m| m.focused().is_none()) && !ui.ctx().any_popup_open();
+        let pressed = free
+            && ui.input_mut(|i| {
+                i.consume_key(Modifiers::NONE, Key::Space) | i.consume_key(Modifiers::NONE, Key::M)
+            });
+        let button = Rect::from_min_size(axes.rect.left_top() + vec2(10.0, 12.0), vec2(124.0, 24.0));
+        let clicked = ui
+            .put(button, eframe::egui::Button::new("Mark peak  Space").small())
+            .on_hover_text("Press when you hear the sweep ring. The mark goes where the tone was a moment ago.")
+            .clicked();
+        if pressed || clicked {
+            add_mark(marks, mark_frequency(&state.sweep, progress));
+        }
+    }
+
+    let font = FontId::proportional(CAPTION);
+    let base = axes.rect.bottom() - 2.0;
+    let mut remove = None;
+    let mut cut = None;
+    for (index, &freq) in marks.iter().enumerate() {
+        let x = axes.x(freq);
+        let line = Stroke::new(1.0, p.marker.gamma_multiply(0.55));
+        painter.add(Shape::dashed_line(&[pos2(x, axes.rect.top()), pos2(x, base)], line, 4.0, 4.0));
+        let pin = vec![pos2(x, base - 9.0), pos2(x + 6.0, base), pos2(x - 6.0, base)];
+        painter.add(Shape::convex_polygon(pin, p.marker, Stroke::NONE));
+        painter.text(pos2(x, base - 12.0), Align2::CENTER_BOTTOM, short_freq(freq), font.clone(), p.marker);
+
+        let hit = Rect::from_center_size(pos2(x, base - 10.0), vec2(28.0, 26.0));
+        let response = ui
+            .interact(hit, ui.id().with(("sweep-mark", index)), Sense::click())
+            .on_hover_text(format!(
+                "Peak marked at {}. Click to add a cut here; right-click to remove the mark.",
+                format_freq(freq)
+            ));
+        if response.clicked() {
+            cut = Some(freq);
+        }
+        response.context_menu(|ui| {
+            if ui.button("Add Cut Here").clicked() {
+                cut = Some(freq);
+                ui.close();
+            }
+            if ui.button("Remove Mark").clicked() {
+                remove = Some(index);
+                ui.close();
+            }
+        });
+    }
+    if let Some(index) = remove {
+        marks.remove(index);
+    }
+    let Some(freq) = cut else {
+        return;
+    };
+    if state.mode != Mode::Parametric {
+        requests.notice = Some("Switch to Parametric to add a cut".into());
+    } else if state.bands.len() >= MAX_BANDS {
+        requests.notice = Some(FULL_MESSAGE.into());
+    } else {
+        // Narrow and gentle: a starting point to fine-tune by ear.
+        let mut band = Band::new(FilterKind::Peak, snap_freq(freq));
+        band.gain_db = -3.0;
+        band.q = 4.0;
+        band.clamp();
+        state.bands.push(band);
+        *selected = Some(state.bands.len() - 1);
+        requests.undoable = Some(format!("Cut added at {}", format_freq(freq)));
     }
 }
 

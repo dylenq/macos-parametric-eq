@@ -7,6 +7,18 @@
 use crate::state::{Sweep, SweepType, MAX_FREQ, MIN_FREQ};
 use std::f64::consts::PI;
 
+/// How far back a mark reaches: the time from a peak being played to the user pressing
+/// the key, which is the output's latency plus a listener's reaction.
+pub const REACTION_SECONDS: f32 = 0.3;
+
+/// The frequency to mark when the user presses Mark `progress` (0 to 1) of the way through
+/// `sweep`: where the tone was a reaction time earlier, or its start.
+pub fn mark_frequency(sweep: &Sweep, progress: f32) -> f32 {
+    let params = SweepParams::from_state(sweep);
+    let t = progress.clamp(0.0, 1.0) * params.duration - REACTION_SECONDS;
+    params.freq_at(t.max(0.0))
+}
+
 /// The level the sweep plays at, as a linear gain.
 pub fn sweep_level_linear(level_db: f32) -> f32 {
     10.0f32.powf(level_db / 20.0)
@@ -178,6 +190,20 @@ mod tests {
             level: -12.0,
             run: 1,
         }
+    }
+
+    #[test]
+    fn a_mark_lands_where_the_tone_was_a_reaction_time_earlier() {
+        let mut sweep = Sweep::default_sweep();
+        sweep.duration = 10.0;
+        // Pressed at 5 s: the tone the user heard was at 4.7 s.
+        let expected = SweepParams::from_state(&sweep).freq_at(5.0 - REACTION_SECONDS);
+        assert!((mark_frequency(&sweep, 0.5) - expected).abs() < 0.01);
+        sweep.sweep_type = SweepType::Linear;
+        assert!((mark_frequency(&sweep, 0.5) - SweepParams::from_state(&sweep).freq_at(4.7)).abs() < 0.01);
+        // Pressed at the very start: the start.
+        assert_eq!(mark_frequency(&sweep, 0.0), 20.0);
+        assert_eq!(mark_frequency(&sweep, 0.01), 20.0);
     }
 
     #[test]

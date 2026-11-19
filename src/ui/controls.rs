@@ -194,7 +194,7 @@ fn chevron(ui: &mut Ui, open: bool, hint: &str, p: &Palette) -> Response {
 
 /// The sweep's settings, shown in a floating panel next to the Sweep switch: what it
 /// sweeps between, how fast, how loud, and how far along it is.
-pub fn sweep_panel(ui: &mut Ui, state: &mut EqState, playing: Option<(f32, f32)>) {
+pub fn sweep_panel(ui: &mut Ui, state: &mut EqState, marks: &mut Vec<f32>, playing: Option<(f32, f32)>) {
     let p = &theme::palette(ui);
     let sweep = &mut state.sweep;
     ui.set_min_width(264.0);
@@ -244,6 +244,35 @@ pub fn sweep_panel(ui: &mut Ui, state: &mut EqState, playing: Option<(f32, f32)>
         ui.add(Slider::new(&mut sweep.level, -48.0..=0.0).step_by(1.0).suffix(" dB").max_decimals(0))
             .on_hover_text("How loud the sweep is, against full scale. Negative keeps it safe.");
     });
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Marked peaks").color(p.secondary));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if ui.add_enabled(!marks.is_empty(), Button::new("Clear").small()).clicked() {
+                marks.clear();
+            }
+        });
+    });
+    if marks.is_empty() {
+        ui.label(
+            RichText::new("Press Space when the sweep rings to mark it on the curve.")
+                .small()
+                .color(p.secondary),
+        );
+    } else {
+        let mut remove = None;
+        ui.horizontal_wrapped(|ui| {
+            for (index, &freq) in marks.iter().enumerate() {
+                let chip = Button::new(RichText::new(format!("{}  \u{00d7}", format_freq(freq))).color(p.marker)).small();
+                if ui.add(chip).on_hover_text("Remove this mark").clicked() {
+                    remove = Some(index);
+                }
+            }
+        });
+        if let Some(index) = remove {
+            marks.remove(index);
+        }
+    }
     ui.add_space(2.0);
     ui.label(RichText::new("Plays in place of system audio, through the EQ.").small().color(p.secondary));
 }

@@ -36,6 +36,8 @@ pub struct Palette {
     selection: Color32,
     /// Clipping.
     pub danger: Color32,
+    /// Peaks marked during a sweep: warm, apart from the accent of bands and the sweep.
+    pub marker: Color32,
 }
 
 const DARK: Palette = Palette {
@@ -53,6 +55,7 @@ const DARK: Palette = Palette {
     accent: Color32::from_rgb(0x0a, 0x84, 0xff),
     selection: Color32::from_rgb(0x0b, 0x63, 0xd6),
     danger: Color32::from_rgb(0xff, 0x45, 0x3a),
+    marker: Color32::from_rgb(0xff, 0xb3, 0x40),
 };
 
 const LIGHT: Palette = Palette {
@@ -70,6 +73,7 @@ const LIGHT: Palette = Palette {
     accent: Color32::from_rgb(0x00, 0x7a, 0xff),
     selection: Color32::from_rgb(0x0b, 0x63, 0xd6),
     danger: Color32::from_rgb(0xd7, 0x00, 0x15),
+    marker: Color32::from_rgb(0xc2, 0x6e, 0x00),
 };
 
 /// The accent color chosen in System Settings as 0xFFRRGGBB, or 0 before it is read.

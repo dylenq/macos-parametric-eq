@@ -520,6 +520,38 @@ pub struct Settings {
     /// Whether the window was closed, leaving EQ in the menu bar, when it last ran.
     #[serde(default)]
     pub window_hidden: bool,
+    /// Peaks marked during sweeps, in Hz, for each output device by UID: they belong to
+    /// the speakers or headphones that rang, whether or not each device keeps its own curve.
+    #[serde(default)]
+    marks: BTreeMap<String, Vec<f32>>,
+}
+
+/// Most marks kept for one output.
+pub const MAX_MARKS: usize = 24;
+/// A new mark this close to an old one, in octaves, is the same peak marked again.
+const SAME_PEAK_OCTAVES: f32 = 1.0 / 12.0;
+
+/// Adds a peak marked at `freq` to `marks`, replacing one within a twelfth of an octave of
+/// it, as two presses on one peak are. Keeps them sorted, and at most [`MAX_MARKS`].
+pub fn add_mark(marks: &mut Vec<f32>, freq: f32) {
+    if !freq.is_finite() {
+        return;
+    }
+    let freq = freq.clamp(MIN_FREQ, MAX_FREQ);
+    marks.retain(|&m| (m / freq).log2().abs() > SAME_PEAK_OCTAVES);
+    if marks.len() >= MAX_MARKS {
+        return;
+    }
+    let at = marks.partition_point(|&m| m < freq);
+    marks.insert(at, freq);
+}
+
+/// Marks read from a file, cleaned up as `add_mark` would have kept them.
+fn clean_marks(marks: &mut Vec<f32>) {
+    let old = std::mem::take(marks);
+    for freq in old {
+        add_mark(marks, freq);
+    }
 }
 
 impl Default for Settings {
@@ -532,6 +564,7 @@ impl Default for Settings {
             current_device: None,
             devices: BTreeMap::new(),
             window_hidden: false,
+            marks: BTreeMap::new(),
         }
     }
 }
@@ -735,7 +768,22 @@ impl Settings {
         self.eq.clamp();
         self.presets.iter_mut().for_each(|p| p.curve.sanitize());
         self.devices.values_mut().for_each(|d| d.curve.sanitize());
+        self.marks.values_mut().for_each(clean_marks);
+        self.marks.retain(|_, marks| !marks.is_empty());
         self.sanitize_names();
+    }
+
+    /// The peaks marked for the current output device.
+    #[cfg(test)]
+    pub fn marks(&self) -> &[f32] {
+        let device = self.current_device.as_deref().unwrap_or_default();
+        self.marks.get(device).map_or(&[], Vec::as_slice)
+    }
+
+    /// The equalizer and the current output's marks, to edit together.
+    pub fn eq_and_marks(&mut self) -> (&mut EqState, &mut Vec<f32>) {
+        let device = self.current_device.clone().unwrap_or_default();
+        (&mut self.eq, self.marks.entry(device).or_default())
     }
 
     /// The folder EQ keeps its files in: ~/Library/Application Support/eq.
@@ -1287,6 +1335,43 @@ mod tests {
         assert_eq!(loaded, settings);
         assert!(!path.with_extension("json.tmp").exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn marking_a_peak_again_replaces_it_and_marks_stay_sorted() {
+        let mut marks = Vec::new();
+        for freq in [2_800.0, 120.0, 9_000.0, 2_900.0, f32::NAN, 5.0, 90_000.0] {
+            add_mark(&mut marks, freq);
+        }
+        // 2.9 kHz is within a twelfth of an octave of 2.8 kHz, so it replaced it.
+        assert_eq!(marks, [MIN_FREQ, 120.0, 2_900.0, 9_000.0, MAX_FREQ]);
+        let mut many = Vec::new();
+        for i in 0..40 {
+            add_mark(&mut many, 20.0 * 2f32.powf(i as f32 / 4.0));
+        }
+        assert_eq!(many.len(), MAX_MARKS);
+        assert!(many.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn each_output_keeps_its_own_marks() {
+        // Marks follow the device even when the curve does not.
+        let mut settings = Settings { per_device: false, ..Settings::default() };
+        settings.switch_device("speakers");
+        add_mark(settings.eq_and_marks().1, 2_800.0);
+        settings.switch_device("headphones");
+        assert!(settings.marks().is_empty());
+        add_mark(settings.eq_and_marks().1, 6_000.0);
+        settings.switch_device("speakers");
+        assert_eq!(settings.marks(), [2_800.0]);
+        // Saved with the settings, cleaned up on load.
+        settings.marks.get_mut("headphones").unwrap().extend([6_050.0, 1e9]);
+        let loaded = Settings::parse(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.marks(), [2_800.0]);
+        assert_eq!(loaded.marks["headphones"], [6_050.0, MAX_FREQ]);
+        // A file from before marks loads with none.
+        let old = br#"{"bands":[],"preamp_db":0.0,"bypass":false}"#;
+        assert!(Settings::parse(old).unwrap().marks().is_empty());
     }
 
     #[test]

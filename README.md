@@ -44,7 +44,8 @@ output device and volume keys keep working as usual.
 - **Frequency sweep.** Play a sine sweep through the EQ, in place of system audio, to
   hear resonances in your speakers or headphones. Logarithmic or linear, with its range,
   length and level in the panel next to the Sweep switch. The curve marks where it is,
-  and it switches itself off at the end.
+  and it switches itself off at the end. Press Space when it rings to pin that peak on
+  the curve; click the pin to put a narrow cut there. Each output keeps its own marks.
 - **Bands in frequency order.** The band list and the numbers on the curve run from low
   to high, however the bands were added.
 - **Bass, treble and balance.** Shelves at 100 Hz and 10 kHz (±12 dB) and a left/right
@@ -108,6 +109,7 @@ normal audio immediately.
 | Reset a slider, bass, treble, balance or the preamp | Double-click it |
 | Compare with the original sound | Toggle **Equalizer**, or press ⌘B |
 | Find resonances | Toggle **Sweep**; set its range, length and level with the arrow next to it |
+| Mark a peak while sweeping | Press Space or M when it rings; click the pin to add a cut, right-click to remove it |
 | Undo, redo | ⌘Z, ⇧⌘Z |
 | Save the curve as a preset | Choose **Save As…** from the preset menu, or press ⇧⌘S |
 | Update the current preset | ⌘S |
