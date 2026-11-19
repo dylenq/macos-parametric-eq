@@ -81,6 +81,11 @@ output device and volume keys keep working as usual.
   <img src="docs/screenshot-graphic-light.png" alt="EQ in graphic mode, with the built-in Vocal preset on ten sliders">
 </picture>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-sweep-dark.png">
+  <img src="docs/screenshot-sweep-light.png" alt="EQ playing a frequency sweep at 5.2 kHz, with peaks marked at 180 Hz, 2.8 kHz and 7.4 kHz and a narrow cut placed on the 2.8 kHz mark">
+</picture>
+
 ## Install
 
 1. Download `EQ.zip` from the
