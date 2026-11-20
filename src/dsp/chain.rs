@@ -39,6 +39,14 @@ impl ChainParams {
             sweep,
         }
     }
+
+    /// The same, turned down by `db`, as an A/B does to its louder side. The audio thread
+    /// glides to a new gain, so the change does not click.
+    pub fn trimmed(mut self, db: f32) -> Self {
+        let trim = 10f64.powf(db as f64 / 20.0);
+        self.gain = self.gain.map(|g| g * trim);
+        self
+    }
 }
 
 /// Stereo biquad cascade with click-free parameter changes. Allocation-free, so it is safe

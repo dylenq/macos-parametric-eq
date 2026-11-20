@@ -1,7 +1,7 @@
 use super::presets;
 use super::theme::{self, Palette};
 use super::{
-    FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, View, display_order, format_balance, format_freq,
+    AbRequest, AbView, FULL_MESSAGE, OVER_THRESHOLD_DB, Requests, View, display_order, format_balance, format_freq,
     format_gain, graphic, parse_freq, parse_gain,
 };
 use crate::dsp::graphic::COUNTS;
@@ -299,7 +299,13 @@ fn row_frame(fill: Color32) -> Frame {
 
 /// The lower half of the window: the mode, the bands or sliders, the buttons that act on
 /// them, and bass, treble and balance.
-pub fn editor(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, requests: &mut Requests) {
+pub fn editor(
+    ui: &mut Ui,
+    state: &mut EqState,
+    selected: &mut Option<usize>,
+    ab: Option<&AbView>,
+    requests: &mut Requests,
+) {
     let p = &theme::palette(ui);
     row_frame(Color32::TRANSPARENT).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -345,7 +351,11 @@ pub fn editor(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, re
         .resizable(false)
         .show(ui, |ui| {
             row_frame(Color32::TRANSPARENT).show(ui, |ui| {
-                ui.horizontal(|ui| buttons(ui, state, selected, requests));
+                ui.horizontal(|ui| {
+                    buttons(ui, state, selected, requests);
+                    ui.add_space(8.0);
+                    ab_controls(ui, ab, requests);
+                });
             });
             row_frame(Color32::TRANSPARENT).show(ui, |ui| {
                 ui.horizontal(|ui| tone(ui, state));
@@ -399,6 +409,44 @@ fn buttons(ui: &mut Ui, state: &mut EqState, selected: &mut Option<usize>, reque
     ui.add_space(8.0);
     ui.checkbox(&mut state.clip_protection, "Clip Protection")
         .on_hover_text("Turns the output down for a moment when boosts would make it clip");
+}
+
+/// Set A, then switch between it and the current settings at matched loudness.
+fn ab_controls(ui: &mut Ui, ab: Option<&AbView>, requests: &mut Requests) {
+    let p = &theme::palette(ui);
+    let Some(ab) = ab else {
+        if ui
+            .button("Set A")
+            .on_hover_text("Remember this sound as A, make your change, then compare the two at matched volume (\u{2325}\u{2318}B)")
+            .clicked()
+        {
+            requests.ab = Some(AbRequest::Set);
+        }
+        return;
+    };
+    // The two sides as a segmented switch; clicking the other side switches.
+    for (label, is_a) in [("A", true), ("B", false)] {
+        let hint = if is_a { "Hear A, the sound you remembered" } else { "Hear B, your current settings" };
+        if ui
+            .selectable_label(ab.hearing_a == is_a, label)
+            .on_hover_text(format!("{hint} (\u{2325}\u{2318}B to switch)"))
+            .clicked()
+            && ab.hearing_a != is_a
+        {
+            requests.ab = Some(AbRequest::Toggle);
+        }
+    }
+    let (trim_a, trim_b) = ab.trims;
+    let text = match (trim_a < -0.05, trim_b < -0.05) {
+        (true, _) => format!("Matched: A {}", format_gain(trim_a)),
+        (_, true) => format!("Matched: B {}", format_gain(trim_b)),
+        _ => "Same loudness".to_owned(),
+    };
+    ui.label(RichText::new(text).color(p.secondary))
+        .on_hover_text("The louder side is turned down by this much, so neither sounds better for being louder");
+    if ui.small_button("\u{00d7}").on_hover_text("Forget A").clicked() {
+        requests.ab = Some(AbRequest::Clear);
+    }
 }
 
 /// Bass and treble shelves and the left/right balance, shared by both modes.

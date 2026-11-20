@@ -21,6 +21,10 @@ pub enum Command {
     ShowWindow,
     ToggleLogin,
     Quit,
+    /// Remember the current sound as A.
+    SetAbReference,
+    /// Switch between A and the current settings.
+    ToggleAb,
 }
 
 /// Menu item id of the preset at an index: "preset:3".
@@ -28,7 +32,7 @@ const PRESET_ID: &str = "preset:";
 
 impl Command {
     /// Every command with a fixed menu item. Presets get theirs as they are created.
-    const FIXED: [Command; 18] = [
+    const FIXED: [Command; 20] = [
         Command::Undo,
         Command::Redo,
         Command::ToggleBypass,
@@ -46,6 +50,8 @@ impl Command {
         Command::Preset(PresetAction::Import),
         Command::ShowWindow,
         Command::ToggleLogin,
+        Command::SetAbReference,
+        Command::ToggleAb,
         Command::Quit,
     ];
 
@@ -74,6 +80,8 @@ impl Command {
             Command::ShowWindow => "show".into(),
             Command::ToggleLogin => "login".into(),
             Command::Quit => "quit".into(),
+            Command::SetAbReference => "set-a".into(),
+            Command::ToggleAb => "compare-ab".into(),
         }
     }
 
@@ -104,6 +112,8 @@ pub struct MenuState {
     /// The active preset is one of the user's own, which can be renamed and deleted.
     pub can_change_preset: bool,
     pub open_at_login: bool,
+    /// A is set, so A/B can be switched.
+    pub can_compare: bool,
 }
 
 /// One checkable menu item per preset, with a separator after the built-in presets and
@@ -167,6 +177,7 @@ pub struct AppMenu {
     reset: MenuItem,
     per_device: CheckMenuItem,
     presets: Submenu,
+    compare: MenuItem,
     preset_items: PresetItems,
     open_at_login: CheckMenuItem,
     /// Absent only if the menu bar item could not be created.
@@ -202,6 +213,12 @@ impl AppMenu {
             true,
             false,
             command_key(Code::KeyB),
+        );
+        let set_a = item(Command::SetAbReference, "Set A", None);
+        let compare = item(
+            Command::ToggleAb,
+            "Compare A/B",
+            Some(Accelerator::new(Modifiers::META | Modifiers::ALT, Code::KeyB)),
         );
         let mode = |mode: Mode, text: &str, key: Code| {
             CheckMenuItem::with_id(Command::SetMode(mode).id(), text, true, false, command_key(key))
@@ -259,6 +276,9 @@ impl AppMenu {
             true,
             &[
                 &bypass,
+                &separator(),
+                &set_a,
+                &compare,
                 &separator(),
                 &parametric,
                 &graphic,
@@ -321,6 +341,7 @@ impl AppMenu {
             reset,
             per_device,
             presets,
+            compare,
             preset_items: PresetItems::default(),
             open_at_login,
             tray: Tray::install()
@@ -366,6 +387,7 @@ impl AppMenu {
         self.per_device.set_checked(state.per_device);
         self.preset_items.check(state.active_preset);
         self.open_at_login.set_checked(state.open_at_login);
+        self.compare.set_enabled(state.can_compare);
         self.save_preset.set_enabled(state.can_save_preset);
         self.rename_preset.set_enabled(state.can_change_preset);
         self.delete_preset.set_enabled(state.can_change_preset);

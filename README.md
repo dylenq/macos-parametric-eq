@@ -68,6 +68,9 @@ output device and volume keys keep working as usual.
   under full scale, or how far over it goes, and offers the preamp that just fits. With
   clip protection off, the part of the curve that would clip is drawn in red.
 - **Bypass.** Switch the EQ off and on (⌘B) to compare with the original sound.
+- **Volume-matched A/B.** Click **Set A** to remember the sound, make your change, then
+  flip between before and after (⌥⌘B). The louder side is turned down to match, so a
+  change can't win, or lose, just for being louder. The curve shows A as a dashed line.
 - **Undo and redo.** Every edit can be undone, including Reset, Remove All and applying a
   preset, and messages about them offer Undo right there.
 - **Follows your output.** Switching between speakers and headphones keeps the EQ running,
@@ -113,6 +116,7 @@ normal audio immediately.
 | Switch between parametric and graphic | ⌘1, ⌘2, or the buttons above the bands |
 | Reset a slider, bass, treble, balance or the preamp | Double-click it |
 | Compare with the original sound | Toggle **Equalizer**, or press ⌘B |
+| Compare before and after a change | Click **Set A**, make your change, then press ⌥⌘B; the louder one is turned down to match |
 | Find resonances | Toggle **Sweep**; set its range, length and level with the arrow next to it |
 | Mark a peak while sweeping | Press Space or M when it rings; click the pin to add a cut, right-click to remove it |
 | Undo, redo | ⌘Z, ⇧⌘Z |

@@ -1,3 +1,4 @@
+use crate::ab::Ab;
 use crate::appkit;
 use crate::audio::devices;
 use crate::audio::engine::Engine;
@@ -9,7 +10,7 @@ use crate::menu::{AppMenu, Command, MenuState};
 use crate::state::{LoadProblem, MAX_BANDS, Mode, Settings};
 use crate::ui::controls::{Level, Status};
 use crate::ui::presets::{self, Dialog, Outcome, PresetAction};
-use crate::ui::{self, View, theme};
+use crate::ui::{self, AbRequest, AbView, View, theme};
 use eframe::egui::{self, ViewportCommand};
 use objc2_core_audio::AudioObjectID;
 use std::path::Path;
@@ -114,6 +115,8 @@ pub struct App {
     quitting: bool,
     /// The sweep parameter panel is open.
     sweep_open: bool,
+    /// The A/B comparison, once A has been set.
+    ab: Option<Ab>,
 }
 
 impl App {
@@ -147,6 +150,7 @@ impl App {
             last_accent_poll: Instant::now(),
             history: History::default(),
             sweep_open: false,
+            ab: None,
             menu: AppMenu::install(ctx)
                 .inspect_err(|error| eprintln!("could not build the menu bar: {error}"))
                 .ok(),
@@ -209,8 +213,10 @@ impl App {
         if let Some(uid) = devices::device_uid(device)
             && self.settings.switch_device(&uid.to_string())
         {
-            // Each device has its own curve, so undo does not reach across the switch.
+            // Each device has its own curve, so undo does not reach across the switch, and
+            // an A remembered on another device's curve means nothing here.
             self.history.clear();
+            self.ab = None;
             self.notice = None;
             self.selected = None;
             self.mark_changed();
@@ -343,7 +349,11 @@ impl App {
         if self.unsent
             && let Some(running) = &mut self.running
         {
-            let params = ChainParams::from_state(&self.settings.eq, running.engine.sample_rate);
+            let rate = running.engine.sample_rate;
+            let params = match &self.ab {
+                Some(ab) => ab.params(&self.settings.eq, rate),
+                None => ChainParams::from_state(&self.settings.eq, rate),
+            };
             self.unsent = !running.engine.send(params);
         }
         if self.save_at.is_some_and(|t| Instant::now() >= t) {
@@ -551,6 +561,8 @@ impl App {
                     self.save();
                     ctx.send_viewport_cmd(ViewportCommand::Close);
                 }
+                Command::SetAbReference => self.ab_request(AbRequest::Set),
+                Command::ToggleAb => self.ab_request(AbRequest::Toggle),
                 Command::Undo | Command::Redo => {}
             }
         }
@@ -569,6 +581,13 @@ impl App {
         if self.settings != *before {
             self.settings.eq.clamp();
             self.mark_changed();
+            // You hear what you are changing.
+            let eq = (&before.eq, &self.settings.eq);
+            if let Some(ab) = &mut self.ab
+                && (crate::history::edited(eq.0, eq.1) || eq.0.mode != eq.1.mode)
+            {
+                ab.edited();
+            }
         }
         self.history.observe(before, &self.settings, gesture_active);
         if let Some(text) = self.undoable.take() {
@@ -611,7 +630,25 @@ impl App {
             can_save_preset: own.is_some() && self.settings.is_modified(),
             can_change_preset: own.is_some(),
             open_at_login: self.open_at_login,
+            can_compare: self.ab.is_some(),
         });
+    }
+
+    fn ab_request(&mut self, request: AbRequest) {
+        match request {
+            AbRequest::Set => {
+                self.ab = Some(Ab::new(&self.settings.eq));
+                self.notify("A set. Make your change, then compare with \u{2325}\u{2318}B");
+            }
+            AbRequest::Toggle => {
+                if let Some(ab) = &mut self.ab {
+                    ab.toggle();
+                }
+            }
+            AbRequest::Clear => self.ab = None,
+        }
+        // The engine plays the other side, at its matched level.
+        self.unsent = true;
     }
 
     /// Writes the settings if they have changed. A failed save is retried later, and
@@ -718,6 +755,11 @@ impl eframe::App for App {
             sweep,
             sweep_open: self.sweep_open,
             sweep_ready: self.running.is_some(),
+            ab: self.ab.as_ref().map(|ab| AbView {
+                hearing_a: ab.hearing_a,
+                trims: ab.trims(&self.settings.eq, self.sample_rate()),
+                reference: ab.reference.clone(),
+            }),
         };
         let (requests, _) = ui::window(ui, &mut self.settings, &mut self.selected, &view);
 
@@ -736,6 +778,9 @@ impl eframe::App for App {
         }
         if let Some(open) = requests.sweep_panel {
             self.sweep_open = open;
+        }
+        if let Some(request) = requests.ab {
+            self.ab_request(request);
         }
         if let Some(dialog) = &mut self.dialog
             && let Some(outcome) = dialog.show(ui.ctx(), &mut self.settings)

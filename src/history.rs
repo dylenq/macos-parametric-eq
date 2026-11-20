@@ -47,7 +47,8 @@ pub struct History {
     serial: u64,
 }
 
-fn edited(a: &EqState, b: &EqState) -> bool {
+/// Whether the sound itself differs: anything but mode, bypass and the ways of listening.
+pub(crate) fn edited(a: &EqState, b: &EqState) -> bool {
     a.bands != b.bands
         || a.graphic != b.graphic
         || a.preamp_db != b.preamp_db

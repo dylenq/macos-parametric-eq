@@ -64,6 +64,28 @@ pub struct Requests {
     pub undo: bool,
     /// Whether the sweep settings panel should be open.
     pub sweep_panel: Option<bool>,
+    /// Something done with the A/B comparison.
+    pub ab: Option<AbRequest>,
+}
+
+/// What can be asked of the A/B comparison from the window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AbRequest {
+    /// Remember the current sound as A.
+    Set,
+    /// Switch between A and the current settings.
+    Toggle,
+    /// Forget A.
+    Clear,
+}
+
+/// The A/B comparison as the window shows it.
+pub struct AbView {
+    pub hearing_a: bool,
+    /// How far A and the current settings are turned down to match, in dB.
+    pub trims: (f32, f32),
+    /// The sound remembered as A.
+    pub reference: crate::state::EqState,
 }
 
 /// What the window shows besides the settings it edits.
@@ -83,6 +105,8 @@ pub struct View {
     pub sweep_open: bool,
     /// A sweep can start: the engine is running. Until something has played it is not.
     pub sweep_ready: bool,
+    /// The A/B comparison, once A has been set.
+    pub ab: Option<AbView>,
 }
 
 /// Lays out the window: the top bar, the curve, and the bands or sliders under it. Returns
@@ -115,14 +139,18 @@ pub fn window(ui: &mut Ui, settings: &mut Settings, selected: &mut Option<usize>
         .default_size(EDITOR_HEIGHT)
         .min_size(200.0)
         .show(ui, |ui| {
-            controls::editor(ui, &mut settings.eq, selected, &mut requests);
+            controls::editor(ui, &mut settings.eq, selected, view.ab.as_ref(), &mut requests);
         });
     let curve = CentralPanel::default()
         .frame(panel(Margin { left: 16, right: 16, top: 4, bottom: 4 }))
         .show(ui, |ui| {
             let (eq, marks) = settings.eq_and_marks();
-            let sweeping = curve::Sweeping { position: view.sweep, marks };
-            curve::show(ui, eq, selected, view.sample_rate, view.keys, sweeping, &mut requests);
+            let overlays = curve::Overlays {
+                sweep: view.sweep,
+                marks,
+                reference: view.ab.as_ref().map(|ab| (&ab.reference, ab.hearing_a)),
+            };
+            curve::show(ui, eq, selected, view.sample_rate, view.keys, overlays, &mut requests);
         })
         .response
         .rect;
@@ -327,6 +355,7 @@ mod mark_tests {
                 sweep: Some((1_000.0, progress)),
                 sweep_open: false,
                 sweep_ready: true,
+                ab: None,
             };
             curve = super::window(ui, settings, &mut selected, &view).1;
         });
@@ -364,6 +393,58 @@ mod mark_tests {
         let cut = settings.eq.bands.last().unwrap();
         assert_eq!((cut.kind, cut.gain_db, cut.q), (FilterKind::Peak, -3.0, 4.0));
         assert!((cut.freq / expected).log2().abs() < 0.01, "{} vs {expected}", cut.freq);
+    }
+}
+
+#[cfg(test)]
+mod ab_tests {
+    use super::controls::{Level, Status};
+    use super::{AbRequest, AbView, View};
+    use crate::state::Settings;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    /// Lays out the window with `ab`, clicks the button labelled `label`, and returns what
+    /// the window asked of the A/B.
+    fn click(ab: Option<AbView>, label: &str) -> Option<AbRequest> {
+        let state = (Settings::default(), None::<AbRequest>);
+        let mut harness = Harness::builder()
+            .with_size(eframe::egui::vec2(1120.0, 640.0))
+            .build_ui_state(
+                move |ui, (settings, asked): &mut (Settings, Option<AbRequest>)| {
+                    let view = View {
+                        level: Level { output_db: -20.0, clipped: false },
+                        status: Status { text: "Speakers".into(), undo: false },
+                        silent: false,
+                        sample_rate: 48_000.0,
+                        keys: true,
+                        sweep: None,
+                        sweep_open: false,
+                        sweep_ready: true,
+                        ab: ab.as_ref().map(|ab| AbView { reference: ab.reference.clone(), ..*ab }),
+                    };
+                    let (requests, _) = super::window(ui, settings, &mut None, &view);
+                    if requests.ab.is_some() {
+                        *asked = requests.ab;
+                    }
+                },
+                state,
+            );
+        harness.run();
+        harness.get_by_label(label).click();
+        harness.run();
+        harness.state().1
+    }
+
+    #[test]
+    fn set_a_then_switch_between_the_sides() {
+        assert_eq!(click(None, "Set A"), Some(AbRequest::Set));
+        let set = |hearing_a| AbView { hearing_a, trims: (-0.8, 0.0), reference: Default::default() };
+        assert_eq!(click(Some(set(false)), "A"), Some(AbRequest::Toggle));
+        assert_eq!(click(Some(set(true)), "B"), Some(AbRequest::Toggle));
+        // Clicking the side already playing does nothing.
+        assert_eq!(click(Some(set(true)), "A"), None);
+        assert_eq!(click(Some(set(true)), "\u{00d7}"), Some(AbRequest::Clear));
     }
 }
 
@@ -419,6 +500,7 @@ mod frame_tests {
                     sweep: None,
                     sweep_open: false,
                     sweep_ready: true,
+                    ab: None,
                 };
                 curve_height = super::window(ui, settings, selected, &view).1.height();
             });

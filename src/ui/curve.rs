@@ -163,11 +163,13 @@ fn chip(painter: &Painter, anchor: Pos2, above: bool, text: String, bounds: Rect
     painter.galley(rect.min + vec2(6.0, 3.0), galley, p.plot);
 }
 
-/// The sweep as the curve shows it: where it is now, as (frequency, fraction played), and
-/// the peaks marked for the current output.
-pub struct Sweeping<'a> {
-    pub position: Option<(f32, f32)>,
+/// What the curve shows besides the settings it edits: the sweep, as (frequency, fraction
+/// played), the peaks marked for the current output, and the A of an A/B with whether it
+/// is the side playing.
+pub struct Overlays<'a> {
+    pub sweep: Option<(f32, f32)>,
     pub marks: &'a mut Vec<f32>,
+    pub reference: Option<(&'a EqState, bool)>,
 }
 
 /// Draws the frequency response and handles editing it. In parametric mode, drag a node to
@@ -181,7 +183,7 @@ pub fn show(
     selected: &mut Option<usize>,
     sample_rate: f64,
     keys: bool,
-    sweeping: Sweeping,
+    overlays: Overlays,
     requests: &mut Requests,
 ) {
     let p = &theme::palette(ui);
@@ -254,6 +256,27 @@ pub fn show(
         plot.add(Shape::line(points(&dbs), Stroke::new(1.0, accent.gamma_multiply(0.55))));
     }
     let width = if state.bypass { 1.5 } else { 2.0 };
+    // A's curve, dashed, under the current one, so the difference being heard is seen.
+    if let Some((reference, hearing_a)) = overlays.reference {
+        let stages = crate::dsp::stages::Stages::new(reference, sample_rate);
+        let dbs: Vec<f32> = freqs
+            .iter()
+            .map(|&f| stages.magnitude_db(f as f64, sample_rate) as f32)
+            .collect();
+        let line = points(&dbs);
+        let color = if hearing_a { p.label } else { p.secondary };
+        plot.add(Shape::dashed_line(&line, Stroke::new(1.5, color.gamma_multiply(0.8)), 6.0, 4.0));
+        if let Some(end) = line.last() {
+            plot.text(*end + vec2(-6.0, -4.0), Align2::RIGHT_BOTTOM, "A", FontId::proportional(theme::SMALL), color);
+        }
+        if hearing_a {
+            let galley = painter.layout_no_wrap("Hearing A".into(), FontId::proportional(theme::SMALL), p.plot);
+            let size = galley.size() + vec2(12.0, 6.0);
+            let rect = Rect::from_min_size(pos2(axes.rect.right() - size.x - 8.0, axes.rect.top() + 40.0), size);
+            painter.rect_filled(rect, CornerRadius::same(6), p.label);
+            painter.galley(rect.min + vec2(6.0, 3.0), galley, p.plot);
+        }
+    }
     plot.add(Shape::line(total.clone(), Stroke::new(width, accent)));
 
     // Where the curve goes past full scale with this preamp, it would clip.
@@ -290,7 +313,7 @@ pub fn show(
     }
 
     // The diagnostic sweep, as a line through the curve and a caption saying where it is.
-    if let Some((freq, progress)) = sweeping.position {
+    if let Some((freq, progress)) = overlays.sweep {
         let freq = freq.clamp(MIN_FREQ, MAX_FREQ);
         let x = axes.x(freq);
         let db = crate::dsp::stages::Stages::new(state, sample_rate).magnitude_db(freq as f64, sample_rate);
@@ -315,7 +338,7 @@ pub fn show(
         painter.galley(rect.min + vec2(6.0, 3.0), galley, p.plot);
     }
 
-    marks(ui, &painter, &axes, state, selected, sweeping, keys, requests, p);
+    marks(ui, &painter, &axes, state, selected, overlays, keys, requests, p);
 
     match state.mode {
         Mode::Parametric => {
@@ -338,12 +361,12 @@ fn marks(
     axes: &Axes,
     state: &mut EqState,
     selected: &mut Option<usize>,
-    sweeping: Sweeping,
+    overlays: Overlays,
     keys: bool,
     requests: &mut Requests,
     p: &Palette,
 ) {
-    let Sweeping { position, marks } = sweeping;
+    let Overlays { sweep: position, marks, .. } = overlays;
     if let Some((_, progress)) = position {
         // The keys belong to a text field or a menu while one is open.
         let free = keys && ui.ctx().memory(|m| m.focused().is_none()) && !ui.ctx().any_popup_open();

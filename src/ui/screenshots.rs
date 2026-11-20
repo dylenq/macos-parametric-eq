@@ -9,8 +9,8 @@
 //! docs/screenshot-sweep-{light,dark}.png.
 
 use super::controls::{Level, Status};
-use super::{View, theme};
-use crate::state::{Band, FilterKind, Mode, Settings, builtins};
+use super::{AbView, View, theme};
+use crate::state::{Band, EqState, FilterKind, Mode, Settings, builtins};
 use eframe::egui::{self, Color32, Id, LayerId, Order, Stroke, Theme, pos2, vec2};
 use egui_kittest::Harness;
 use image::RgbaImage;
@@ -27,9 +27,9 @@ const BUTTONS: [(Color32, Color32); 3] = [
     (Color32::from_rgb(0x28, 0xc8, 0x40), Color32::from_rgb(0x1a, 0xab, 0x29)),
 ];
 
-/// What a picture shows: the settings, the selected band, and a sweep in progress as
-/// (frequency, fraction played), if one is.
-type Scene = (Settings, Option<usize>, Option<(f32, f32)>);
+/// What a picture shows: the settings, the selected band, a sweep in progress as
+/// (frequency, fraction played), and the sound remembered as A, if they are.
+type Scene = (Settings, Option<usize>, Option<(f32, f32)>, Option<EqState>);
 
 /// A five-band correction like the one people make for a pair of speakers.
 fn parametric() -> Scene {
@@ -44,12 +44,14 @@ fn parametric() -> Scene {
     ];
     settings.eq.preamp_db = -5.0;
     settings.save_preset("Studio Monitors").unwrap();
-    (settings, Some(2), None)
+    (settings, Some(2), None, None)
 }
 
-/// A sweep most of the way up, with three peaks marked and a cut placed on one of them.
+/// A sweep most of the way up, with three peaks marked, a cut placed on one of them, and
+/// the sound from before the cut remembered as A to compare with.
 fn sweep() -> Scene {
     let (mut settings, ..) = parametric();
+    let before = settings.eq.clone();
     settings.eq.bands[3] = Band { kind: FilterKind::Peak, freq: 2_800.0, gain_db: -3.0, q: 4.0, enabled: true };
     settings.save_preset("Studio Monitors").unwrap();
     settings.eq.sweep.enabled = true;
@@ -57,7 +59,7 @@ fn sweep() -> Scene {
     for freq in [180.0, 2_800.0, 7_400.0] {
         crate::state::add_mark(settings.eq_and_marks().1, freq);
     }
-    (settings, Some(3), Some((5_200.0, 0.8)))
+    (settings, Some(3), Some((5_200.0, 0.8)), Some(before))
 }
 
 /// The built-in Vocal preset on the graphic sliders.
@@ -66,11 +68,11 @@ fn graphic() -> Scene {
     let vocal = builtins().iter().position(|p| p.name == "Vocal").unwrap();
     settings.apply_preset(vocal);
     assert_eq!(settings.eq.mode, Mode::Graphic);
-    (settings, None, None)
+    (settings, None, None, None)
 }
 
 /// Draws the window as the app would show it and returns the picture.
-fn render(look: Theme, (mut settings, mut selected, sweep): Scene) -> RgbaImage {
+fn render(look: Theme, (mut settings, mut selected, sweep, reference): Scene) -> RgbaImage {
     let mut installed = false;
     // The harness puts this much margin around the closure's ui, which is cropped off after.
     const MARGIN: f32 = 8.0;
@@ -93,6 +95,11 @@ fn render(look: Theme, (mut settings, mut selected, sweep): Scene) -> RgbaImage 
                 sweep,
                 sweep_open: false,
                 sweep_ready: true,
+                ab: reference.as_ref().map(|reference| AbView {
+                    hearing_a: false,
+                    trims: crate::ab::Ab::new(reference).trims(&settings.eq, 48_000.0),
+                    reference: reference.clone(),
+                }),
             };
             super::window(ui, &mut settings, &mut selected, &view);
             // macOS draws these over the transparent title bar.

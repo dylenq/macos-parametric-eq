@@ -1,5 +1,5 @@
 use super::biquad::Coeffs;
-use super::stages::Stages;
+use super::stages::{Stages, balance_db};
 use crate::state::{Band, EqState, MAX_FREQ, MAX_GAIN_DB, MIN_FREQ, Mode};
 use std::cell::RefCell;
 
@@ -70,6 +70,40 @@ pub fn peak_db(state: &EqState, sample_rate: f64) -> f32 {
     })
 }
 
+/// The A-weighting curve in dB at `freq`: how much quieter the ear hears a tone there
+/// than at 1 kHz.
+pub fn a_weighting_db(freq: f64) -> f64 {
+    let f2 = freq * freq;
+    let r = 12_194f64.powi(2) * f2 * f2
+        / ((f2 + 20.6f64.powi(2))
+            * ((f2 + 107.7f64.powi(2)) * (f2 + 737.9f64.powi(2))).sqrt()
+            * (f2 + 12_194f64.powi(2)));
+    20.0 * r.log10() + 2.0
+}
+
+/// How much louder or quieter the EQ makes music overall, in dB: the response's power
+/// averaged over the audible range with equal weight per octave, as music carries it,
+/// weighted the way the ear hears it, plus the preamp and the balance. Used to match the
+/// two sides of an A/B, so neither wins for being louder.
+pub fn loudness_db(state: &EqState, sample_rate: f64) -> f32 {
+    let stages = Stages::new(state, sample_rate);
+    let (mut sum, mut weights) = (0.0, 0.0);
+    // Sixth-octave steps from 20 Hz to 20 kHz.
+    for k in 0..=60 {
+        let freq = (MIN_FREQ as f64 * 2f64.powf(k as f64 / 6.0)).min(MAX_FREQ as f64);
+        if freq >= sample_rate / 2.0 {
+            break;
+        }
+        let weight = 10f64.powf(a_weighting_db(freq) / 10.0);
+        sum += weight * 10f64.powf(stages.magnitude_db(freq, sample_rate) / 10.0);
+        weights += weight;
+    }
+    let balance = balance_db(state.balance).map(|db| 10f64.powf(db as f64 / 10.0));
+    let balance = 10.0 * ((balance[0] + balance[1]) / 2.0).log10();
+    let db = 10.0 * (sum / weights).log10() + state.preamp_db as f64 + balance;
+    if db.is_finite() { db as f32 } else { 0.0 }
+}
+
 /// A preamp that keeps a response peaking at `peak_db` from going over full scale: the peak
 /// rounded up to a tenth of a dB, turned down, and never a boost.
 pub fn suggested_preamp_db(peak_db: f32) -> f32 {
@@ -132,6 +166,37 @@ mod tests {
         assert_eq!(total_db(&state, &[1_000.0], 48_000.0).len(), 1);
         let at_96k: Vec<f32> = freqs.iter().map(|&f| band_db(&state.bands[0], f, 96_000.0)).collect();
         assert_eq!(total_db(&state, &freqs, 96_000.0), at_96k);
+    }
+
+    #[test]
+    fn loudness_follows_what_the_ear_would_hear() {
+        let fs = 48_000.0;
+        let flat = EqState { bands: Vec::new(), ..EqState::default() };
+        assert!(loudness_db(&flat, fs).abs() < 0.01);
+        let quieter = EqState { preamp_db: -3.0, ..flat.clone() };
+        assert!((loudness_db(&quieter, fs) + 3.0).abs() < 0.01);
+        let louder = EqState { bass_db: 6.0, treble_db: 6.0, ..flat.clone() };
+        assert!(loudness_db(&louder, fs) > 0.5);
+
+        let with_cut = |q: f32| {
+            let mut band = Band::new(FilterKind::Peak, 2_800.0);
+            band.gain_db = -6.0;
+            band.q = q;
+            loudness_db(&EqState { bands: vec![band], ..flat.clone() }, fs)
+        };
+        // A narrow cut takes off a little, a wide one more.
+        let (narrow, wide) = (with_cut(4.0), with_cut(0.5));
+        assert!(narrow < 0.0 && narrow > -1.0, "{narrow}");
+        assert!(wide < narrow - 0.5, "{wide} vs {narrow}");
+
+        // The ear hears a 2 kHz boost as louder than a 60 Hz boost of the same size.
+        let boost = |freq: f32| {
+            let mut band = Band::new(FilterKind::Peak, freq);
+            band.gain_db = 6.0;
+            loudness_db(&EqState { bands: vec![band], ..flat.clone() }, fs)
+        };
+        assert!(boost(2_000.0) > boost(60.0) + 0.5);
+        assert!(a_weighting_db(1_000.0).abs() < 0.01);
     }
 
     #[test]
