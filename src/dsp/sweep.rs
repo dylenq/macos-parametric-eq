@@ -8,8 +8,8 @@ use crate::state::{Sweep, SweepType, MAX_FREQ, MIN_FREQ};
 use std::f64::consts::PI;
 
 /// How far back a mark reaches: the time from a peak being played to the user pressing
-/// the key, which is the output's latency plus a listener's reaction.
-pub const REACTION_SECONDS: f32 = 0.3;
+/// the key: a short allowance for the output's latency plus a quick reaction.
+pub const REACTION_SECONDS: f32 = 0.15;
 
 /// The frequency to mark when the user presses Mark `progress` (0 to 1) of the way through
 /// `sweep`: where the tone was a reaction time earlier, or its start.
@@ -196,11 +196,11 @@ mod tests {
     fn a_mark_lands_where_the_tone_was_a_reaction_time_earlier() {
         let mut sweep = Sweep::default_sweep();
         sweep.duration = 10.0;
-        // Pressed at 5 s: the tone the user heard was at 4.7 s.
+        // Pressed at 5 s: the tone the user heard was at 4.85 s.
         let expected = SweepParams::from_state(&sweep).freq_at(5.0 - REACTION_SECONDS);
         assert!((mark_frequency(&sweep, 0.5) - expected).abs() < 0.01);
         sweep.sweep_type = SweepType::Linear;
-        assert!((mark_frequency(&sweep, 0.5) - SweepParams::from_state(&sweep).freq_at(4.7)).abs() < 0.01);
+        assert!((mark_frequency(&sweep, 0.5) - SweepParams::from_state(&sweep).freq_at(4.85)).abs() < 0.01);
         // Pressed at the very start: the start.
         assert_eq!(mark_frequency(&sweep, 0.0), 20.0);
         assert_eq!(mark_frequency(&sweep, 0.01), 20.0);
