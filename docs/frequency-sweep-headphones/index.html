@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frequency Sweep: Find Headphone Resonances on Mac</title>
+<meta name="description" content="Use a frequency sweep to hear where your headphones or speakers ring, pin the peak with Space, and add a narrow cut. A step-by-step guide with EQ for Mac.">
+<link rel="canonical" href="https://dylenq.github.io/macos-parametric-eq/frequency-sweep-headphones/">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" type="image/png" href="../icon.png">
+<link rel="apple-touch-icon" href="../icon.png">
+<meta name="theme-color" content="#0b1a33">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="EQ for macOS">
+<meta property="og:title" content="Frequency Sweep: Find Headphone Resonances on Mac">
+<meta property="og:description" content="Use a frequency sweep to hear where your headphones or speakers ring, pin the peak with Space, and add a narrow cut. A step-by-step guide with EQ for Mac.">
+<meta property="og:url" content="https://dylenq.github.io/macos-parametric-eq/frequency-sweep-headphones/">
+<meta property="og:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="EQ, a system-wide parametric equalizer for macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Frequency Sweep: Find Headphone Resonances on Mac">
+<meta name="twitter:description" content="Use a frequency sweep to hear where your headphones or speakers ring, pin the peak with Space, and add a narrow cut. A step-by-step guide with EQ for Mac.">
+<meta name="twitter:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "EQ for macOS",
+      "item": "https://dylenq.github.io/macos-parametric-eq/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Frequency sweep",
+      "item": "https://dylenq.github.io/macos-parametric-eq/frequency-sweep-headphones/"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "How to find and cut a resonance with a frequency sweep in EQ",
+  "description": "Play a sine sweep through EQ, mark the frequencies where the sound rings, and turn a mark into a narrow cut.",
+  "step": [
+    {
+      "@type": "HowToStep",
+      "position": 1,
+      "name": "Start quietly",
+      "text": "Turn the volume down, then switch on Sweep. EQ plays a sine sweep through the equalizer in place of system audio."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 2,
+      "name": "Set the sweep",
+      "text": "Open the panel with the arrow next to the Sweep switch to choose a logarithmic or linear sweep and set its range, length and level."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 3,
+      "name": "Listen and mark",
+      "text": "Watch the marker move along the curve. When the tone rings, buzzes or jumps out, press Space (or M) to pin that frequency on the curve."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 4,
+      "name": "Cut the peak",
+      "text": "Click a pin to add a narrow cut at that frequency."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 5,
+      "name": "Check the result",
+      "text": "Run the sweep again, or use Set A and ⌥⌘B to compare before and after at matched volume. Right-click a pin to remove it."
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is a frequency sweep?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "A sine tone that glides from a low frequency to a high one. Where your headphones or speakers resonate, the tone sounds louder or harsher, which shows you where a narrow cut may help."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I mark a peak while the sweep plays?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Press Space or M when it rings. The frequency is pinned on the curve. Click the pin to put a narrow cut there, and right-click it to remove it."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does the sweep play through my normal audio?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "It plays through the EQ in place of system audio, and switches itself off at the end."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Are my marks kept per output?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Each output keeps its own marks."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<nav class="site-nav" aria-label="Main"><div class="wrap"><a class="brand" href="../">EQ for macOS</a><a href="../autoeq-on-mac/">AutoEq on Mac</a><a href="../headphone-equalizer-mac/">Headphones</a><a href="../equalizer-without-blackhole/">No driver</a><a href="../frequency-sweep-headphones/" aria-current="page">Frequency sweep</a><a href="../eqmac-alternatives/">Alternatives</a><a class="gh" href="https://github.com/dylenq/macos-parametric-eq">GitHub</a></div></nav>
+<div class="wrap">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../">EQ for macOS</a> › Frequency sweep</nav>
+<article>
+<h1>Find resonances in your headphones or speakers with a frequency sweep</h1>
+<p class="lede">A sine sweep glides through the whole frequency range so you can hear where your headphones or speakers ring, then lets you mark the spot and cut it.</p>
+<p class="updated">Updated 21 November 2026 · Applies to EQ 0.6.0</p>
+
+<h2>Why a sweep helps</h2>
+<p>Music hides resonances because it never plays one frequency by itself. A sweep does exactly that: a pure tone that moves slowly from low to high. Where a driver, an enclosure or an ear cup resonates, the tone suddenly sounds louder, buzzier or harsher. Those are the narrow peaks a parametric equalizer is good at removing.</p>
+<p>The sweep in EQ plays through the equalizer, so it also shows what your current curve is doing to each frequency, and it plays in place of system audio while it runs.</p>
+
+<h2>Step by step</h2>
+<ol>
+<li><b>Start quietly.</b> Turn the volume down, then switch on <b>Sweep</b>. EQ plays a sine sweep through the equalizer in place of system audio.</li>
+<li><b>Set the sweep.</b> Open the panel with the arrow next to the Sweep switch to choose a logarithmic or linear sweep and set its range, length and level.</li>
+<li><b>Listen and mark.</b> Watch the marker move along the curve. When the tone rings, buzzes or jumps out, press Space (or M) to pin that frequency on the curve.</li>
+<li><b>Cut the peak.</b> Click a pin to add a narrow cut at that frequency.</li>
+<li><b>Check the result.</b> Run the sweep again, or use Set A and ⌥⌘B to compare before and after at matched volume. Right-click a pin to remove it.</li>
+</ol>
+<picture><source media="(prefers-color-scheme: dark)" srcset="../screenshot-sweep-dark.png"><img src="../screenshot-sweep-light.png" width="2240" height="1280" alt="EQ playing a frequency sweep at 5.2 kHz, with peaks marked at 180 Hz, 2.8 kHz and 7.4 kHz and a narrow cut placed on the 2.8 kHz mark" loading="lazy" decoding="async"></picture>
+<p>The curve shows where the sweep currently is, and it switches itself off at the end. Each output keeps its own marks, so the pins you set for your headphones are not mixed up with the ones for your speakers.</p>
+
+<h2>Tips for good results</h2>
+<ul>
+<li><b>Keep the level modest.</b> A sweep concentrates energy at one frequency at a time. Start low and raise it only as far as you need.</li>
+<li><b>Sweep more than once.</b> The first pass tells you roughly where; a shorter, slower sweep over a narrower range tells you exactly.</li>
+<li><b>Cut narrowly, and as little as works.</b> The pin's cut is narrow on purpose. Scroll over a band to widen or narrow its Q, and drag it to adjust the depth. Check against music before you trust it.</li>
+<li><b>Mind the headroom.</b> Cuts do not run out of room the way boosts do, but the top bar still shows the headroom if you also add boosts.</li>
+<li><b>Trust your ears over the picture.</b> What you hear depends on the device, how it sits on your head and your own hearing. The marks are a starting point for tuning, not a measurement.</li>
+</ul>
+
+<h2>Sweep, then correct</h2>
+<p>A sweep and a measured correction complement each other. Start from an <a href="../autoeq-on-mac/">AutoEq profile</a> for your headphone model, then use a sweep to find anything left that bothers you on your unit. See also the <a href="../headphone-equalizer-mac/">headphone equalizer guide</a>.</p>
+
+<h2>Frequently asked questions</h2>
+<details><summary>What is a frequency sweep?</summary><p>A sine tone that glides from a low frequency to a high one. Where your headphones or speakers resonate, the tone sounds louder or harsher, which shows you where a narrow cut may help.</p></details>
+<details><summary>How do I mark a peak while the sweep plays?</summary><p>Press Space or M when it rings. The frequency is pinned on the curve. Click the pin to put a narrow cut there, and right-click it to remove it.</p></details>
+<details><summary>Does the sweep play through my normal audio?</summary><p>It plays through the EQ in place of system audio, and switches itself off at the end.</p></details>
+<details><summary>Are my marks kept per output?</summary><p>Yes. Each output keeps its own marks.</p></details>
+<div class="cta-box"><p>Free, open source, no account. macOS 14.2 or later.</p>
+<a class="cta" href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download EQ for macOS</a>
+<p class="meta">Version 0.6.0 · universal build, developed on Apple silicon · <a href="https://github.com/dylenq/macos-parametric-eq">Source on GitHub</a></p></div>
+<h2>More from EQ</h2><ul class="related"><li><a href="../autoeq-on-mac/">AutoEq on Mac</a></li><li><a href="../headphone-equalizer-mac/">Headphones</a></li><li><a href="../equalizer-without-blackhole/">No driver</a></li><li><a href="../eqmac-alternatives/">Alternatives</a></li></ul>
+</article>
+</div>
+<footer class="site-footer"><nav aria-label="Footer"><a href="../">Home</a><a href="../autoeq-on-mac/">AutoEq on Mac</a><a href="../headphone-equalizer-mac/">Headphones</a><a href="../equalizer-without-blackhole/">No driver</a><a href="../frequency-sweep-headphones/">Frequency sweep</a><a href="../eqmac-alternatives/">Alternatives</a><a href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download</a><a href="https://github.com/dylenq/macos-parametric-eq">Source</a><a href="https://github.com/dylenq/macos-parametric-eq/blob/main/LICENSE">GPL-3.0</a></nav><p>EQ is free software under the GPL-3.0 license. Built in Rust with Core Audio. Not affiliated with Apple or any product named on this site.</p></footer>
+</body>
+</html>

@@ -1,0 +1,20 @@
+# EQ for macOS
+
+> EQ is a free, open-source (GPL-3.0) system-wide parametric equalizer for macOS 14.2 or later. It applies an EQ to all audio the Mac plays using the Core Audio process tap API, so no virtual audio driver, BlackHole or kernel extension is needed. Current version 0.6.0. Universal build, developed on Apple silicon; the Intel half is untested. The app is not notarized by Apple. It makes no network connections.
+
+Key features: up to 16 parametric bands (20 Hz to 20 kHz, plus or minus 24 dB, adjustable Q); peak, low shelf, high shelf, low pass and high pass filters; graphic mode with 5, 10, 15 or 31 sliders; bass, treble and balance; built-in and custom presets; AutoEq and Equalizer APO ParametricEQ.txt import; a separate curve for each output device; frequency sweep with peak marking; volume-matched A/B; clip-protection limiter; menu bar control.
+
+Not included: per-app volume or per-app EQ.
+
+## Pages
+- [Home](https://dylenq.github.io/macos-parametric-eq/): overview, features, install and FAQ
+- [How to use AutoEq on a Mac](https://dylenq.github.io/macos-parametric-eq/autoeq-on-mac/): import an AutoEq headphone correction
+- [Headphone and AirPods equalizer for Mac](https://dylenq.github.io/macos-parametric-eq/headphone-equalizer-mac/): per-output curves, bass, treble, presets
+- [Mac equalizer without BlackHole](https://dylenq.github.io/macos-parametric-eq/equalizer-without-blackhole/): how the process tap works and its limits
+- [Frequency sweep guide](https://dylenq.github.io/macos-parametric-eq/frequency-sweep-headphones/): find and cut resonances
+- [eqMac alternatives compared](https://dylenq.github.io/macos-parametric-eq/eqmac-alternatives/): neutral, sourced comparison
+
+## Links
+- [Download](https://github.com/dylenq/macos-parametric-eq/releases/latest)
+- [Source code](https://github.com/dylenq/macos-parametric-eq)
+- [License](https://www.gnu.org/licenses/gpl-3.0.html)

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Headphone and AirPods Equalizer for Mac | EQ</title>
+<meta name="description" content="Tune headphones, AirPods or speakers on a Mac with a free system-wide parametric equalizer. Per-output curves, AutoEq import, bass boost, no driver.">
+<link rel="canonical" href="https://dylenq.github.io/macos-parametric-eq/headphone-equalizer-mac/">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" type="image/png" href="../icon.png">
+<link rel="apple-touch-icon" href="../icon.png">
+<meta name="theme-color" content="#0b1a33">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="EQ for macOS">
+<meta property="og:title" content="Headphone and AirPods Equalizer for Mac | EQ">
+<meta property="og:description" content="Tune headphones, AirPods or speakers on a Mac with a free system-wide parametric equalizer. Per-output curves, AutoEq import, bass boost, no driver.">
+<meta property="og:url" content="https://dylenq.github.io/macos-parametric-eq/headphone-equalizer-mac/">
+<meta property="og:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="EQ, a system-wide parametric equalizer for macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Headphone and AirPods Equalizer for Mac | EQ">
+<meta name="twitter:description" content="Tune headphones, AirPods or speakers on a Mac with a free system-wide parametric equalizer. Per-output curves, AutoEq import, bass boost, no driver.">
+<meta name="twitter:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "EQ for macOS",
+      "item": "https://dylenq.github.io/macos-parametric-eq/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Headphone equalizer",
+      "item": "https://dylenq.github.io/macos-parametric-eq/headphone-equalizer-mac/"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "How to set up a headphone equalizer on a Mac with EQ",
+  "description": "Install EQ, select your headphones as the output, and shape their sound with a curve that is remembered for that output.",
+  "step": [
+    {
+      "@type": "HowToStep",
+      "position": 1,
+      "name": "Install EQ",
+      "text": "Download EQ.zip from the latest release, unzip it, move EQ.app to Applications and open it. Because the app is not notarized, use Open Anyway in System Settings › Privacy & Security the first time, and allow system audio capture when asked."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 2,
+      "name": "Select your headphones as the output",
+      "text": "Choose your headphones as the Mac's output device and play something. EQ follows the output you switch to."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 3,
+      "name": "Shape the sound",
+      "text": "Drag points on the curve, load a preset such as Bass or Vocal, or import an AutoEq file with Presets › Import…."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 4,
+      "name": "Check headroom and compare",
+      "text": "Accept the suggested preamp if the top bar shows the boosts running over full scale, then use ⌘B or Set A and ⌥⌘B to compare."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 5,
+      "name": "Save it",
+      "text": "Choose Save As… (⇧⌘S) to keep it as a preset. The curve itself is remembered for that output."
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Does EQ work with AirPods?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "EQ equalizes what plays on the output macOS is using. If your AirPods are the current output device it applies to them like any other output. EQ is not specific to AirPods or any other model, and nothing here is a promise about Bluetooth behaviour."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I have different EQ settings for speakers and headphones?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Each output remembers its own curve and gets it back when you switch to it. You can turn this off under Equalizer to use one curve everywhere."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I boost the bass on my Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Use the bass control, a shelf at 100 Hz with up to 12 dB of gain, or the built-in Bass preset, or add a low-shelf band. Watch the headroom in the top bar and accept the suggested preamp if the boost runs over full scale."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does the equalizer change a call on a headset while music plays on the speakers?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. EQ equalizes what plays on the current output. An app you route to another device plays there untouched."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<nav class="site-nav" aria-label="Main"><div class="wrap"><a class="brand" href="../">EQ for macOS</a><a href="../autoeq-on-mac/">AutoEq on Mac</a><a href="../headphone-equalizer-mac/" aria-current="page">Headphones</a><a href="../equalizer-without-blackhole/">No driver</a><a href="../frequency-sweep-headphones/">Frequency sweep</a><a href="../eqmac-alternatives/">Alternatives</a><a class="gh" href="https://github.com/dylenq/macos-parametric-eq">GitHub</a></div></nav>
+<div class="wrap">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../">EQ for macOS</a> › Headphone equalizer</nav>
+<article>
+<h1>A headphone equalizer for Mac, for every output</h1>
+<p class="lede">Set your headphones up once and let the Mac remember. EQ keeps a separate equalizer curve for each output device and switches to it when you do.</p>
+<p class="updated">Updated 21 November 2026 · Applies to EQ 0.6.0</p>
+
+<h2>What it does for headphones</h2>
+<p>EQ equalizes what plays on your current output device, so it works the same whether that is the built-in speakers, wired headphones or a headset. It is not tied to a particular headphone brand. If macOS lists a device as an output, EQ can equalize what plays on it.</p>
+<p>The common jobs:</p>
+<ul>
+<li><b>Correct a known frequency response.</b> Import an <a href="../autoeq-on-mac/">AutoEq correction</a> for your model, or any Equalizer APO <code>ParametricEQ.txt</code> file.</li>
+<li><b>Add or reduce bass.</b> Use the bass control (a shelf at 100 Hz, ±12 dB), the built-in Bass preset, or a low-shelf band of your own.</li>
+<li><b>Tame harsh treble.</b> Use the treble control (a shelf at 10 kHz, ±12 dB), or pull down a single peak band where it bothers you. The <a href="../frequency-sweep-headphones/">frequency sweep</a> helps you find it.</li>
+<li><b>Fix a lopsided fit.</b> The balance control turns one side down.</li>
+<li><b>Make speech clearer.</b> Start from the built-in Vocal preset and adjust.</li>
+</ul>
+
+<h2>One curve per output</h2>
+<p>Speakers and headphones almost never want the same curve. EQ remembers each output's settings and brings them back when you switch to it, so plugging in your headphones does not leave you with the speaker curve. Switching outputs keeps the EQ running. You can turn this off under Equalizer if you prefer a single curve everywhere.</p>
+<picture><source media="(prefers-color-scheme: dark)" srcset="../screenshot-sweep-dark.png"><img src="../screenshot-sweep-light.png" width="2240" height="1280" alt="EQ playing a frequency sweep at 5.2 kHz, with peaks marked at 180 Hz, 2.8 kHz and 7.4 kHz and a narrow cut placed on the 2.8 kHz mark" loading="lazy" decoding="async"></picture>
+
+<h2>AirPods and other Bluetooth headphones</h2>
+<p>EQ is not specific to AirPods or any other headphone model, and this page makes no promise about particular Bluetooth devices. What EQ does is behaviour at the output: it equalizes what plays on the output macOS is using, and keeps running when you switch outputs. If your AirPods or headset appear as the current output, the EQ applies to them like any other device. EQ is a general-purpose equalizer that covers every output rather than one product.</p>
+
+<h2>Protect your ears and your sound</h2>
+<ul>
+<li>Boosting makes things louder, and loud boosts can clip. EQ shows the headroom in the top bar and offers a preamp that just fits. Clip protection, a limiter, is on by default.</li>
+<li>Compare fairly. <b>Set A</b>, make your change, then flip with ⌥⌘B: the louder side is turned down to match, so a change cannot win just by being louder.</li>
+<li>Everything is undoable (⌘Z), including applying a preset and Reset.</li>
+</ul>
+
+<h2>Setup in a minute</h2>
+<ol>
+<li><b>Install EQ.</b> Download <code>EQ.zip</code> from the latest release, unzip it, move <code>EQ.app</code> to Applications and open it. Because the app is not notarized, use <b>Open Anyway</b> in System Settings › Privacy &amp; Security the first time, and allow system audio capture when asked.</li>
+<li><b>Select your headphones as the output.</b> Choose your headphones as the Mac's output device and play something. EQ follows the output you switch to.</li>
+<li><b>Shape the sound.</b> Drag points on the curve, load a preset such as Bass or Vocal, or import an AutoEq file with <b>Presets › Import…</b>.</li>
+<li><b>Check headroom and compare.</b> Accept the suggested preamp if the top bar shows the boosts running over full scale, then use ⌘B or Set A and ⌥⌘B to compare.</li>
+<li><b>Save it.</b> Choose <b>Save As…</b> (⇧⌘S) to keep it as a preset. The curve itself is remembered for that output.</li>
+</ol>
+
+<h2>Frequently asked questions</h2>
+<details><summary>Does EQ work with AirPods?</summary><p>EQ equalizes what plays on the output macOS is using. If your AirPods are the current output device it applies to them like any other output. EQ is not specific to AirPods or any other model, and nothing here is a promise about Bluetooth behaviour.</p></details>
+<details><summary>Can I have different EQ settings for speakers and headphones?</summary><p>Yes. Each output remembers its own curve and gets it back when you switch to it. You can turn this off under Equalizer to use one curve everywhere.</p></details>
+<details><summary>How do I boost the bass on my Mac?</summary><p>Use the bass control, a shelf at 100 Hz with up to 12 dB of gain, or the built-in Bass preset, or add a low-shelf band. Watch the headroom in the top bar and accept the suggested preamp if the boost runs over full scale.</p></details>
+<details><summary>Does the equalizer change a call on a headset while music plays on the speakers?</summary><p>No. EQ equalizes what plays on the current output. An app you route to another device plays there untouched.</p></details>
+<div class="cta-box"><p>Free, open source, no account. macOS 14.2 or later.</p>
+<a class="cta" href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download EQ for macOS</a>
+<p class="meta">Version 0.6.0 · universal build, developed on Apple silicon · <a href="https://github.com/dylenq/macos-parametric-eq">Source on GitHub</a></p></div>
+<h2>More from EQ</h2><ul class="related"><li><a href="../autoeq-on-mac/">AutoEq on Mac</a></li><li><a href="../equalizer-without-blackhole/">No driver</a></li><li><a href="../frequency-sweep-headphones/">Frequency sweep</a></li><li><a href="../eqmac-alternatives/">Alternatives</a></li></ul>
+</article>
+</div>
+<footer class="site-footer"><nav aria-label="Footer"><a href="../">Home</a><a href="../autoeq-on-mac/">AutoEq on Mac</a><a href="../headphone-equalizer-mac/">Headphones</a><a href="../equalizer-without-blackhole/">No driver</a><a href="../frequency-sweep-headphones/">Frequency sweep</a><a href="../eqmac-alternatives/">Alternatives</a><a href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download</a><a href="https://github.com/dylenq/macos-parametric-eq">Source</a><a href="https://github.com/dylenq/macos-parametric-eq/blob/main/LICENSE">GPL-3.0</a></nav><p>EQ is free software under the GPL-3.0 license. Built in Rust with Core Audio. Not affiliated with Apple or any product named on this site.</p></footer>
+</body>
+</html>

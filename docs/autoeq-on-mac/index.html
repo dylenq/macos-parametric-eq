@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Use AutoEq on Mac (System-Wide, Free)</title>
+<meta name="description" content="Step-by-step: get an AutoEq headphone correction and apply it to all Mac audio with EQ, a free system-wide equalizer. No BlackHole or driver needed.">
+<link rel="canonical" href="https://dylenq.github.io/macos-parametric-eq/autoeq-on-mac/">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" type="image/png" href="../icon.png">
+<link rel="apple-touch-icon" href="../icon.png">
+<meta name="theme-color" content="#0b1a33">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="EQ for macOS">
+<meta property="og:title" content="How to Use AutoEq on Mac (System-Wide, Free)">
+<meta property="og:description" content="Step-by-step: get an AutoEq headphone correction and apply it to all Mac audio with EQ, a free system-wide equalizer. No BlackHole or driver needed.">
+<meta property="og:url" content="https://dylenq.github.io/macos-parametric-eq/autoeq-on-mac/">
+<meta property="og:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="EQ, a system-wide parametric equalizer for macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="How to Use AutoEq on Mac (System-Wide, Free)">
+<meta name="twitter:description" content="Step-by-step: get an AutoEq headphone correction and apply it to all Mac audio with EQ, a free system-wide equalizer. No BlackHole or driver needed.">
+<meta name="twitter:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "EQ for macOS",
+      "item": "https://dylenq.github.io/macos-parametric-eq/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "AutoEq on Mac",
+      "item": "https://dylenq.github.io/macos-parametric-eq/autoeq-on-mac/"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "How to use an AutoEq headphone profile on a Mac",
+  "description": "Download an AutoEq ParametricEQ.txt correction for your headphones and import it into EQ to equalize all system audio.",
+  "step": [
+    {
+      "@type": "HowToStep",
+      "position": 1,
+      "name": "Find your headphones",
+      "text": "Open autoeq.app and pick your headphone model and the measurement or target you want."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 2,
+      "name": "Choose the Equalizer APO format",
+      "text": "Choose “EqualizerAPO ParametricEq” as the equalizer app and download the ParametricEQ.txt file."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 3,
+      "name": "Import it into EQ",
+      "text": "In EQ, choose Presets › Import…, or drop the .txt file on the EQ window. It is saved as a preset."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 4,
+      "name": "Check the headroom",
+      "text": "Look at the headroom in the top bar. If the boosts reach past full scale, accept the suggested preamp. With clip protection on (the default), the limiter also turns the output down for a moment instead of distorting."
+    },
+    {
+      "@type": "HowToStep",
+      "position": 5,
+      "name": "Compare with bypass",
+      "text": "Press ⌘B to switch the EQ off and on, or use Set A and ⌥⌘B for a volume-matched comparison, and listen for what changed."
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Does AutoEq work on a Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "AutoEq itself only generates settings. On a Mac you load them into an equalizer that supports the format. EQ imports AutoEq ParametricEQ.txt files, and any Equalizer APO file in that style, as a preset."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which AutoEq format should I download for EQ?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Choose “EqualizerAPO ParametricEq” as the equalizer app and download the ParametricEQ.txt file."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Do I need BlackHole to use AutoEq on a Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Not with EQ. EQ captures system audio with a Core Audio process tap built into macOS 14.2 and later, so no virtual audio device is installed."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why is my imported preset quieter than the original?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "AutoEq files usually include a negative preamp so boosts do not clip, and EQ applies it. The top bar shows the headroom and offers the preamp that just fits."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<nav class="site-nav" aria-label="Main"><div class="wrap"><a class="brand" href="../">EQ for macOS</a><a href="../autoeq-on-mac/" aria-current="page">AutoEq on Mac</a><a href="../headphone-equalizer-mac/">Headphones</a><a href="../equalizer-without-blackhole/">No driver</a><a href="../frequency-sweep-headphones/">Frequency sweep</a><a href="../eqmac-alternatives/">Alternatives</a><a class="gh" href="https://github.com/dylenq/macos-parametric-eq">GitHub</a></div></nav>
+<div class="wrap">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../">EQ for macOS</a> › AutoEq on Mac</nav>
+<article>
+<h1>How to use AutoEq on a Mac</h1>
+<p class="lede">AutoEq produces headphone correction settings, but it does not equalize anything itself. On macOS you need an equalizer that can load them. EQ imports them directly and applies them to every sound your Mac plays.</p>
+<p class="updated">Updated 21 November 2026 · Applies to EQ 0.6.0</p>
+
+<h2>What AutoEq is, and what it is not</h2>
+<p><a href="https://github.com/jaakkopasanen/AutoEq">AutoEq</a> is a project that uses headphone measurements to generate correction settings for them. Its own description is that it produces settings for many kinds of equalizer apps but does not do the equalization itself. The corrected sound only exists once an equalizer on your computer applies those settings to what you play.</p>
+<p>On a Mac that usually raises a second problem: macOS does not include a general-purpose system-wide equalizer, and many third-party equalizers need a virtual audio device installed first. EQ avoids that by using the system audio capture API built into macOS 14.2 and later; see <a href="../equalizer-without-blackhole/">how EQ works without BlackHole</a>.</p>
+
+<h2>Step by step</h2>
+<ol>
+<li><b>Find your headphones.</b> Open <a href="https://autoeq.app">autoeq.app</a> and pick your headphone model and the measurement or target you want.</li>
+<li><b>Choose the Equalizer APO format.</b> Choose “EqualizerAPO ParametricEq” as the equalizer app and download the <code>ParametricEQ.txt</code> file.</li>
+<li><b>Import it into EQ.</b> In EQ, choose <b>Presets › Import…</b>, or drop the <code>.txt</code> file on the EQ window. It is saved as a preset.</li>
+<li><b>Check the headroom.</b> Look at the headroom in the top bar. If the boosts reach past full scale, accept the suggested preamp. With clip protection on (the default), the limiter also turns the output down for a moment instead of distorting.</li>
+<li><b>Compare with bypass.</b> Press ⌘B to switch the EQ off and on, or use Set A and ⌥⌘B for a volume-matched comparison, and listen for what changed.</li>
+</ol>
+<p>EQ reads up to 16 filters from the file. Peak, low shelf, high shelf, low pass and high pass filters are supported, with either Q or a bandwidth in octaves, and a <code>Preamp</code> line is applied as the preamp. Filters of any other type, or beyond the sixteenth, are skipped.</p>
+
+<div class="note">Importing never replaces a preset you already have. If a preset with the same name exists, the new one gets a number.</div>
+
+<h2>Apply it to the right output</h2>
+<p>EQ remembers a separate curve for each output, so your speakers and your headphones each keep their own settings and get them back when you switch. Make your headphones the current output before you apply the imported preset, so the correction lands on the output it was made for. If you would rather use one curve everywhere, turn off the per-output option under Equalizer.</p>
+<p>A preset keeps the whole sound: the mode, the bands or sliders, the preamp, and bass, treble and balance. Applying a preset can be undone with ⌘Z.</p>
+
+<h2>Adjust it after importing</h2>
+<p>An imported correction is a starting point, not a verdict. In EQ it is an ordinary set of parametric bands: drag a point on the curve to change its frequency and gain, scroll over it to change Q, or type exact values in the band list. If a correction sounds too bright or too heavy for your taste, nudge the shelves or use the bass and treble controls rather than starting over, and save the result with <b>Save As…</b> (⇧⌘S).</p>
+<picture><source media="(prefers-color-scheme: dark)" srcset="../screenshot-graphic-dark.png"><img src="../screenshot-graphic-light.png" width="2240" height="1280" alt="EQ in graphic mode, with the built-in Vocal preset on ten sliders" loading="lazy" decoding="async"></picture>
+<h2>Other equalizers for the same files</h2>
+<p>The <code>ParametricEQ.txt</code> format comes from Equalizer APO, a Windows equalizer, which is why AutoEq publishes it. EQ reads the same format on the Mac. If you are choosing between Mac equalizers, the <a href="../eqmac-alternatives/">comparison page</a> lists the main options.</p>
+
+<h2>Frequently asked questions</h2>
+<details><summary>Does AutoEq work on a Mac?</summary><p>AutoEq itself only generates settings. On a Mac you load them into an equalizer that supports the format. EQ imports AutoEq ParametricEQ.txt files, and any Equalizer APO file in that style, as a preset.</p></details>
+<details><summary>Which AutoEq format should I download for EQ?</summary><p>Choose “EqualizerAPO ParametricEq” as the equalizer app and download the ParametricEQ.txt file.</p></details>
+<details><summary>Do I need BlackHole to use AutoEq on a Mac?</summary><p>Not with EQ. EQ captures system audio with a Core Audio process tap built into macOS 14.2 and later, so no virtual audio device is installed.</p></details>
+<details><summary>Why is my imported preset quieter than the original?</summary><p>AutoEq files usually include a negative preamp so boosts do not clip, and EQ applies it. The top bar shows the headroom and offers the preamp that just fits.</p></details>
+<div class="cta-box"><p>Free, open source, no account. macOS 14.2 or later.</p>
+<a class="cta" href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download EQ for macOS</a>
+<p class="meta">Version 0.6.0 · universal build, developed on Apple silicon · <a href="https://github.com/dylenq/macos-parametric-eq">Source on GitHub</a></p></div>
+<h2>More from EQ</h2><ul class="related"><li><a href="../headphone-equalizer-mac/">Headphones</a></li><li><a href="../equalizer-without-blackhole/">No driver</a></li><li><a href="../frequency-sweep-headphones/">Frequency sweep</a></li><li><a href="../eqmac-alternatives/">Alternatives</a></li></ul>
+</article>
+</div>
+<footer class="site-footer"><nav aria-label="Footer"><a href="../">Home</a><a href="../autoeq-on-mac/">AutoEq on Mac</a><a href="../headphone-equalizer-mac/">Headphones</a><a href="../equalizer-without-blackhole/">No driver</a><a href="../frequency-sweep-headphones/">Frequency sweep</a><a href="../eqmac-alternatives/">Alternatives</a><a href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download</a><a href="https://github.com/dylenq/macos-parametric-eq">Source</a><a href="https://github.com/dylenq/macos-parametric-eq/blob/main/LICENSE">GPL-3.0</a></nav><p>EQ is free software under the GPL-3.0 license. Built in Rust with Core Audio. Not affiliated with Apple or any product named on this site.</p></footer>
+</body>
+</html>

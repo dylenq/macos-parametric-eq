@@ -291,7 +291,7 @@ docs/                 the website, served by GitHub Pages
 ## Releasing
 
 1. Set the version in `Cargo.toml` and in `bundle/Info.plist` (`CFBundleShortVersionString`,
-   and raise `CFBundleVersion`), and on the website in `docs/index.html`.
+   and raise `CFBundleVersion`), and on the website in `docs/index.html` (the visible version and `softwareVersion`), `docs/llms.txt`, and the `lastmod` dates in `docs/sitemap.xml`.
 2. Commit, then tag and push the tag: `git tag v0.6.0 && git push origin v0.6.0`.
 3. The [release workflow](.github/workflows/release.yml) checks that the tag matches both
    versions, builds `EQ.zip`, and attaches it with its checksum to a draft release, to

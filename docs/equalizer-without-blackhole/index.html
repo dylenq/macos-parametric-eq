@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mac Equalizer Without BlackHole: How EQ Works</title>
+<meta name="description" content="How a Mac equalizer can work with no BlackHole or virtual audio driver, using the macOS 14.2 Core Audio process tap. What it needs and where it stops.">
+<link rel="canonical" href="https://dylenq.github.io/macos-parametric-eq/equalizer-without-blackhole/">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" type="image/png" href="../icon.png">
+<link rel="apple-touch-icon" href="../icon.png">
+<meta name="theme-color" content="#0b1a33">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="EQ for macOS">
+<meta property="og:title" content="Mac Equalizer Without BlackHole: How EQ Works">
+<meta property="og:description" content="How a Mac equalizer can work with no BlackHole or virtual audio driver, using the macOS 14.2 Core Audio process tap. What it needs and where it stops.">
+<meta property="og:url" content="https://dylenq.github.io/macos-parametric-eq/equalizer-without-blackhole/">
+<meta property="og:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="EQ, a system-wide parametric equalizer for macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Mac Equalizer Without BlackHole: How EQ Works">
+<meta name="twitter:description" content="How a Mac equalizer can work with no BlackHole or virtual audio driver, using the macOS 14.2 Core Audio process tap. What it needs and where it stops.">
+<meta name="twitter:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "EQ for macOS",
+      "item": "https://dylenq.github.io/macos-parametric-eq/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "No driver",
+      "item": "https://dylenq.github.io/macos-parametric-eq/equalizer-without-blackhole/"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Do I need BlackHole, Soundflower or another virtual audio driver?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. EQ captures system audio with a Core Audio process tap, which is built into macOS 14.2 and later."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why does macOS ask for permission to record audio?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Reading system audio is what lets the app equalize it, and macOS guards that behind the System Audio Recording permission. Nothing is recorded or saved."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does EQ work on macOS versions older than 14.2?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. The process tap API it relies on was added in macOS 14.2."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I uninstall EQ?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Turn off Open at Login if you enabled it, quit the app and delete EQ.app. No drivers or background services are installed."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<nav class="site-nav" aria-label="Main"><div class="wrap"><a class="brand" href="../">EQ for macOS</a><a href="../autoeq-on-mac/">AutoEq on Mac</a><a href="../headphone-equalizer-mac/">Headphones</a><a href="../equalizer-without-blackhole/" aria-current="page">No driver</a><a href="../frequency-sweep-headphones/">Frequency sweep</a><a href="../eqmac-alternatives/">Alternatives</a><a class="gh" href="https://github.com/dylenq/macos-parametric-eq">GitHub</a></div></nav>
+<div class="wrap">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../">EQ for macOS</a> › No driver</nav>
+<article>
+<h1>A Mac equalizer without BlackHole or a virtual driver</h1>
+<p class="lede">macOS does not include a general-purpose system-wide equalizer, which is why many Mac equalizers ask you to install a virtual audio device. Since macOS 14.2 there is another way, and EQ uses it.</p>
+<p class="updated">Updated 21 November 2026 · Applies to EQ 0.6.0</p>
+
+<h2>The usual way, and why it is awkward</h2>
+<p>An app cannot normally intercept the sound other apps send to your speakers. The long-standing workaround is a virtual audio device, a loopback driver such as BlackHole. You make that virtual device your system output, the equalizer app reads what arrives there, processes it and plays it on your real speakers or headphones. It works, but you install a driver, your output and volume keys now point at the virtual device, and removing it later is a chore.</p>
+
+<h2>The process tap way</h2>
+<p>macOS 14.2 added a Core Audio API called a process tap, which lets an app read the audio that other processes play. EQ builds on it:</p>
+<ol>
+<li>It creates a tap of what plays on your output device, except its own sound, mixed to stereo, and mutes the original on that device while it is being read.</li>
+<li>A private aggregate device pairs the tap with your real output device.</li>
+<li>A single audio callback (an IOProc) runs the sound through a cascade of biquad filters, using the designs from the RBJ Audio EQ Cookbook, on its way to the speakers. It asks for the tap's input only, so a headset's microphone is not started.</li>
+<li>Parameter changes from the window reach the audio thread through a lock-free queue and are smoothed so that dragging a band does not click.</li>
+</ol>
+<p>Your output device stays your output device, and the volume keys keep working. The aggregate device is private, so it does not show up for other apps.</p>
+
+<h2>What you give up</h2>
+<p>Being honest about the trade-offs:</p>
+<ul>
+<li><b>macOS 14.2 or later.</b> The API does not exist on older versions, so EQ does not run on them.</li>
+<li><b>A permission.</b> macOS guards audio capture behind the System Audio Recording permission, and asks the first time. Nothing is recorded or saved, and EQ makes no network connections. If you hear nothing, enable EQ under System Settings › Privacy &amp; Security › Screen &amp; System Audio Recording.</li>
+<li><b>Unsigned by Apple.</b> The app is not notarized, so macOS blocks the first launch until you choose <b>Open Anyway</b>. The source is public if you would rather build it yourself.</li>
+<li><b>PCM audio only.</b> If an output is passing encoded audio such as Dolby Digital through to a receiver, EQ cannot process its format. Switch passthrough off, or pick a PCM format for the device in Audio MIDI Setup.</li>
+<li><b>Current output only.</b> EQ equalizes what plays on your current output. Apps you send to another device play there untouched.</li>
+<li><b>Intel is untested.</b> The download is a universal build, but it is developed on Apple silicon and the Intel half has not been tested yet.</li>
+</ul>
+
+<h2>Quitting puts everything back</h2>
+<p>No driver or background service is installed. Quitting EQ (⌘Q) restores normal audio immediately, and uninstalling is quitting the app and deleting <code>EQ.app</code>. Closing the window alone leaves EQ running in the menu bar. Settings live in <code>~/Library/Application Support/eq/</code>.</p>
+
+<h2>Built to be safe on the audio thread</h2>
+<p>The audio thread does not allocate, lock or panic into Core Audio. A stray NaN from any app becomes silence instead of sticking in the filters, filter state is kept out of the subnormal numbers that slow Intel processors down, and an output whose format is not 32-bit float is left alone. EQ is written in Rust, with egui for the interface and objc2 for Core Audio. The code is on <a href="https://github.com/dylenq/macos-parametric-eq">GitHub</a> under the GPL-3.0.</p>
+<p>Next: <a href="../autoeq-on-mac/">apply an AutoEq headphone correction</a>, or see how EQ <a href="../eqmac-alternatives/">compares with other Mac equalizers</a>.</p>
+
+<h2>Frequently asked questions</h2>
+<details><summary>Do I need BlackHole, Soundflower or another virtual audio driver?</summary><p>No. EQ captures system audio with a Core Audio process tap, which is built into macOS 14.2 and later.</p></details>
+<details><summary>Why does macOS ask for permission to record audio?</summary><p>Reading system audio is what lets the app equalize it, and macOS guards that behind the System Audio Recording permission. Nothing is recorded or saved.</p></details>
+<details><summary>Does EQ work on macOS versions older than 14.2?</summary><p>No. The process tap API it relies on was added in macOS 14.2.</p></details>
+<details><summary>How do I uninstall EQ?</summary><p>Turn off Open at Login if you enabled it, quit the app and delete EQ.app. No drivers or background services are installed.</p></details>
+<div class="cta-box"><p>Free, open source, no account. macOS 14.2 or later.</p>
+<a class="cta" href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download EQ for macOS</a>
+<p class="meta">Version 0.6.0 · universal build, developed on Apple silicon · <a href="https://github.com/dylenq/macos-parametric-eq">Source on GitHub</a></p></div>
+<h2>More from EQ</h2><ul class="related"><li><a href="../autoeq-on-mac/">AutoEq on Mac</a></li><li><a href="../headphone-equalizer-mac/">Headphones</a></li><li><a href="../frequency-sweep-headphones/">Frequency sweep</a></li><li><a href="../eqmac-alternatives/">Alternatives</a></li></ul>
+</article>
+</div>
+<footer class="site-footer"><nav aria-label="Footer"><a href="../">Home</a><a href="../autoeq-on-mac/">AutoEq on Mac</a><a href="../headphone-equalizer-mac/">Headphones</a><a href="../equalizer-without-blackhole/">No driver</a><a href="../frequency-sweep-headphones/">Frequency sweep</a><a href="../eqmac-alternatives/">Alternatives</a><a href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download</a><a href="https://github.com/dylenq/macos-parametric-eq">Source</a><a href="https://github.com/dylenq/macos-parametric-eq/blob/main/LICENSE">GPL-3.0</a></nav><p>EQ is free software under the GPL-3.0 license. Built in Rust with Core Audio. Not affiliated with Apple or any product named on this site.</p></footer>
+</body>
+</html>

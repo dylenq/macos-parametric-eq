@@ -3,17 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EQ: Free System-Wide Parametric Equalizer for macOS</title>
-<meta name="description" content="EQ is a free, open-source parametric equalizer for all system audio on macOS. No audio driver or BlackHole needed. AutoEq headphone presets, per-device curves, menu bar control.">
-<meta name="keywords" content="mac equalizer, macos equalizer, system-wide equalizer mac, parametric eq mac, audio equalizer for mac, autoeq mac, headphone eq mac, free equalizer mac, eqmac alternative">
+<title>Free Mac Equalizer: System-Wide Parametric EQ for macOS</title>
+<meta name="description" content="EQ is a free, open-source system-wide equalizer for Mac. Parametric EQ for all audio, AutoEq headphone import, no BlackHole or driver needed. macOS 14.2+.">
 <link rel="canonical" href="https://dylenq.github.io/macos-parametric-eq/">
+<link rel="stylesheet" href="style.css">
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
 <meta name="theme-color" content="#0b1a33">
-
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="EQ for macOS">
-<meta property="og:title" content="EQ: Free System-Wide Parametric Equalizer for macOS">
+<meta property="og:title" content="Free Mac Equalizer: System-Wide Parametric EQ for macOS">
 <meta property="og:description" content="A parametric EQ for every sound your Mac plays. No audio driver, no kernel extension, no account.">
 <meta property="og:url" content="https://dylenq.github.io/macos-parametric-eq/">
 <meta property="og:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
@@ -21,10 +20,9 @@
 <meta property="og:image:height" content="640">
 <meta property="og:image:alt" content="EQ, a system-wide parametric equalizer for macOS">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="EQ: Free System-Wide Parametric Equalizer for macOS">
-<meta name="twitter:description" content="A parametric EQ for every sound your Mac plays. No audio driver needed.">
+<meta name="twitter:title" content="Free Mac Equalizer: System-Wide Parametric EQ for macOS">
+<meta name="twitter:description" content="A parametric EQ for every sound your Mac plays. No audio driver, no kernel extension, no account.">
 <meta name="twitter:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
-
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -36,14 +34,23 @@
   "applicationSubCategory": "Audio equalizer",
   "operatingSystem": "macOS 14.2 or later",
   "softwareVersion": "0.6.0",
+  "isAccessibleForFree": true,
   "license": "https://www.gnu.org/licenses/gpl-3.0.html",
   "url": "https://dylenq.github.io/macos-parametric-eq/",
   "downloadUrl": "https://github.com/dylenq/macos-parametric-eq/releases/latest",
   "codeRepository": "https://github.com/dylenq/macos-parametric-eq",
   "screenshot": "https://dylenq.github.io/macos-parametric-eq/screenshot-light.png",
   "image": "https://dylenq.github.io/macos-parametric-eq/social-preview.png",
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-  "author": { "@type": "Person", "name": "dylenq", "url": "https://github.com/dylenq" },
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "author": {
+    "@type": "Person",
+    "name": "dylenq",
+    "url": "https://github.com/dylenq"
+  },
   "featureList": [
     "System-wide equalizer for all macOS audio",
     "Up to 16 parametric bands",
@@ -64,73 +71,73 @@
   "@context": "https://schema.org",
   "@type": "FAQPage",
   "mainEntity": [
-    {"@type": "Question", "name": "Do I need BlackHole, Soundflower or another virtual audio driver?",
-     "acceptedAnswer": {"@type": "Answer", "text": "No. EQ captures system audio with a Core Audio process tap, which is built into macOS 14.2 and later."}},
-    {"@type": "Question", "name": "Is EQ free?",
-     "acceptedAnswer": {"@type": "Answer", "text": "Yes. EQ is free and open source under the GPL-3.0 license, with no account and no in-app purchases."}},
-    {"@type": "Question", "name": "Which Macs does EQ run on?",
-     "acceptedAnswer": {"@type": "Answer", "text": "Any Mac on macOS 14.2 (Sonoma) or later. The download is a universal build for Apple silicon and Intel."}},
-    {"@type": "Question", "name": "How do I use an AutoEq headphone profile on a Mac?",
-     "acceptedAnswer": {"@type": "Answer", "text": "Find your headphones on autoeq.app, choose EqualizerAPO ParametricEq, download the file and import it in EQ with Presets > Import."}},
-    {"@type": "Question", "name": "Why does macOS ask for permission to record audio?",
-     "acceptedAnswer": {"@type": "Answer", "text": "Reading system audio is what lets the app equalize it, and macOS guards that behind the System Audio Recording permission. Nothing is recorded or saved, and the app makes no network connections."}}
+    {
+      "@type": "Question",
+      "name": "Do I need BlackHole, Soundflower or another virtual audio driver?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. EQ captures system audio with a Core Audio process tap, which is built into macOS 14.2 and later."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is EQ free?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. EQ is free and open source under the GPL-3.0 license, with no account and no in-app purchases."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which Macs does it run on?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Any Mac on macOS 14.2 (Sonoma) or later. The download is a universal build; it is developed on Apple silicon and the Intel half has not been tested yet."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I use an AutoEq headphone profile on a Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Find your headphones on autoeq.app, choose “EqualizerAPO ParametricEq” and download the file. Import it with Presets › Import…, or drop it on the window. Read the full guide."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why does macOS ask for permission to record audio?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Reading system audio is what lets the app equalize it, and macOS guards that behind the “System Audio Recording” permission. Nothing is recorded or saved, and the app makes no network connections."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I uninstall it?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Turn off EQ › Open at Login if you enabled it, quit the app and delete EQ.app. No drivers or background services are installed."
+      }
+    }
   ]
 }
 </script>
-<style>
-:root {
-  --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --card: #f5f5f7; --line: #e5e5ea;
-  --accent: #0a74ff; --accent-fg: #ffffff;
-}
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #0b0d12; --fg: #f5f5f7; --muted: #a1a1a6; --card: #16191f; --line: #262a33; --accent: #2f8bff; }
-}
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg);
-  font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif; }
-main, header, footer { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
-header { text-align: center; padding-top: 72px; }
-header img.icon { width: 96px; height: 96px; }
-h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.1; letter-spacing: -0.02em; margin: 16px 0 12px; }
-.lede { font-size: clamp(18px, 2.4vw, 22px); color: var(--muted); max-width: 640px; margin: 0 auto; }
-.cta { display: inline-block; margin: 28px 0 8px; padding: 14px 28px; border-radius: 999px;
-  background: var(--accent); color: var(--accent-fg); font-weight: 600; text-decoration: none; }
-.cta:hover { filter: brightness(1.08); }
-.meta { color: var(--muted); font-size: 14px; }
-.meta a { color: inherit; }
-picture img { display: block; width: 100%; height: auto; margin: 48px 0; border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.18); }
-h2 { font-size: 28px; letter-spacing: -0.01em; margin: 64px 0 20px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-.grid div { background: var(--card); border-radius: 14px; padding: 20px; }
-.grid h3 { margin: 0 0 6px; font-size: 17px; }
-.grid p { margin: 0; color: var(--muted); font-size: 15px; }
-ol li { margin-bottom: 8px; }
-details { border-bottom: 1px solid var(--line); padding: 14px 0; }
-summary { font-weight: 600; cursor: pointer; }
-details p { color: var(--muted); margin: 8px 0 0; }
-a { color: var(--accent); }
-footer { color: var(--muted); font-size: 14px; padding-top: 48px; padding-bottom: 48px; text-align: center; }
-</style>
 </head>
 <body>
-<header>
+<nav class="site-nav" aria-label="Main"><div class="wrap"><a class="brand" href="./">EQ for macOS</a><a href="autoeq-on-mac/">AutoEq on Mac</a><a href="headphone-equalizer-mac/">Headphones</a><a href="equalizer-without-blackhole/">No driver</a><a href="frequency-sweep-headphones/">Frequency sweep</a><a href="eqmac-alternatives/">Alternatives</a><a class="gh" href="https://github.com/dylenq/macos-parametric-eq">GitHub</a></div></nav>
+<header class="hero wrap">
   <img class="icon" src="icon.png" alt="EQ app icon" width="96" height="96">
-  <h1>The system-wide parametric equalizer for macOS</h1>
+  <h1>The free system-wide parametric equalizer for Mac</h1>
   <p class="lede">A free, open-source EQ for every sound your Mac plays: music, browsers, games and calls. No audio driver, no kernel extension, no account.</p>
   <a class="cta" href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download for macOS</a>
-  <p class="meta">Version 0.6.0 · macOS 14.2 or later · Apple silicon and Intel · <a href="https://github.com/dylenq/macos-parametric-eq">Source on GitHub</a></p>
+  <p class="meta">Version 0.6.0 · macOS 14.2 or later · universal build, developed on Apple silicon · <a href="https://github.com/dylenq/macos-parametric-eq">Source on GitHub</a></p>
 </header>
 
-<main>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="screenshot-dark.png">
-    <img src="screenshot-light.png" width="2240" height="1280"
-      alt="EQ for macOS showing a frequency response curve with five draggable bands, a preset menu, a preamp slider, a band list and bass, treble and balance controls">
-  </picture>
+<main class="wrap">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="screenshot-dark.png"><img src="screenshot-light.png" width="2240" height="1280" alt="EQ for macOS showing a frequency response curve with five draggable bands, a preset menu, a preamp slider, a band list and bass, treble and balance controls"></picture>
 
-  <p>EQ applies a parametric equalizer to all system audio on your Mac, on speakers or headphones. Shape the sound by dragging points on a frequency-response curve, the way you would in a studio EQ plugin, and hear the change immediately.</p>
-  <p>Unlike most Mac equalizers it does not install a virtual audio device. It uses the Core Audio process tap API Apple added in macOS 14.2, so there is nothing to uninstall and your output device and volume keys keep working as usual.</p>
+  <p>EQ is a Mac equalizer that applies a parametric EQ to all system audio, on speakers or headphones. Shape the sound by dragging points on a frequency-response curve, the way you would in a studio EQ plugin, and hear the change immediately.</p>
+  <p>Unlike most Mac equalizers it does not install a virtual audio device. It uses the Core Audio process tap API Apple added in macOS 14.2, so there is nothing to uninstall and your output device and volume keys keep working as usual. <a href="equalizer-without-blackhole/">See how it works</a>.</p>
 
   <h2>Features</h2>
   <div class="grid">
@@ -150,6 +157,15 @@ footer { color: var(--muted); font-size: 14px; padding-top: 48px; padding-bottom
     <div><h3>Native feel</h3><p>Light and dark appearance, your accent color, undo and redo, and a full menu bar.</p></div>
   </div>
 
+  <h2>Guides</h2>
+  <div class="grid">
+    <div><h3><a href="autoeq-on-mac/">How to use AutoEq on a Mac</a></h3><p>Get a headphone correction and apply it to all system audio.</p></div>
+    <div><h3><a href="headphone-equalizer-mac/">Headphone and AirPods EQ</a></h3><p>One curve per output, bass, treble and presets.</p></div>
+    <div><h3><a href="equalizer-without-blackhole/">No BlackHole, no driver</a></h3><p>How the macOS process tap replaces a virtual audio device.</p></div>
+    <div><h3><a href="frequency-sweep-headphones/">Find resonances with a sweep</a></h3><p>Hear where your headphones ring, then cut it.</p></div>
+    <div><h3><a href="eqmac-alternatives/">eqMac alternatives compared</a></h3><p>A neutral, sourced look at Mac equalizers.</p></div>
+  </div>
+
   <h2>Install</h2>
   <ol>
     <li>Download <code>EQ.zip</code> from the <a href="https://github.com/dylenq/macos-parametric-eq/releases/latest">latest release</a> and unzip it.</li>
@@ -159,22 +175,14 @@ footer { color: var(--muted); font-size: 14px; padding-top: 48px; padding-bottom
   </ol>
 
   <h2>Frequently asked questions</h2>
-  <details><summary>Do I need BlackHole, Soundflower or another virtual audio driver?</summary>
-    <p>No. EQ captures system audio with a Core Audio process tap, which is built into macOS 14.2 and later.</p></details>
-  <details><summary>Is EQ free?</summary>
-    <p>Yes. EQ is free and open source under the GPL-3.0 license, with no account and no in-app purchases.</p></details>
-  <details><summary>Which Macs does it run on?</summary>
-    <p>Any Mac on macOS 14.2 (Sonoma) or later. The download is a universal build for Apple silicon and Intel.</p></details>
-  <details><summary>How do I use an AutoEq headphone profile on a Mac?</summary>
-    <p>Find your headphones on <a href="https://autoeq.app">autoeq.app</a>, choose “EqualizerAPO ParametricEq” and download the file. Import it with <b>Presets › Import…</b>, or drop it on the window.</p></details>
-  <details><summary>Why does macOS ask for permission to record audio?</summary>
-    <p>Reading system audio is what lets the app equalize it, and macOS guards that behind the “System Audio Recording” permission. Nothing is recorded or saved.</p></details>
-  <details><summary>How do I uninstall it?</summary>
-    <p>Turn off <b>EQ › Open at Login</b> if you enabled it, quit the app and delete <code>EQ.app</code>. No drivers or background services are installed.</p></details>
+<details><summary>Do I need BlackHole, Soundflower or another virtual audio driver?</summary><p>No. EQ captures system audio with a Core Audio process tap, which is built into macOS 14.2 and later.</p></details>
+<details><summary>Is EQ free?</summary><p>Yes. EQ is free and open source under the GPL-3.0 license, with no account and no in-app purchases.</p></details>
+<details><summary>Which Macs does it run on?</summary><p>Any Mac on macOS 14.2 (Sonoma) or later. The download is a universal build; it is developed on Apple silicon and the Intel half has not been tested yet.</p></details>
+<details><summary>How do I use an AutoEq headphone profile on a Mac?</summary><p>Find your headphones on <a href="https://autoeq.app">autoeq.app</a>, choose “EqualizerAPO ParametricEq” and download the file. Import it with <b>Presets › Import…</b>, or drop it on the window. <a href="autoeq-on-mac/">Read the full guide</a>.</p></details>
+<details><summary>Why does macOS ask for permission to record audio?</summary><p>Reading system audio is what lets the app equalize it, and macOS guards that behind the “System Audio Recording” permission. Nothing is recorded or saved, and the app makes no network connections.</p></details>
+<details><summary>How do I uninstall it?</summary><p>Turn off <b>EQ › Open at Login</b> if you enabled it, quit the app and delete <code>EQ.app</code>. No drivers or background services are installed.</p></details>
 </main>
 
-<footer>
-  EQ is free software under the <a href="https://github.com/dylenq/macos-parametric-eq/blob/main/LICENSE">GPL-3.0</a>. Built in Rust with Core Audio.
-</footer>
+<footer class="site-footer"><nav aria-label="Footer"><a href="./">Home</a><a href="autoeq-on-mac/">AutoEq on Mac</a><a href="headphone-equalizer-mac/">Headphones</a><a href="equalizer-without-blackhole/">No driver</a><a href="frequency-sweep-headphones/">Frequency sweep</a><a href="eqmac-alternatives/">Alternatives</a><a href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download</a><a href="https://github.com/dylenq/macos-parametric-eq">Source</a><a href="https://github.com/dylenq/macos-parametric-eq/blob/main/LICENSE">GPL-3.0</a></nav><p>EQ is free software under the GPL-3.0 license. Built in Rust with Core Audio. Not affiliated with Apple or any product named on this site.</p></footer>
 </body>
 </html>

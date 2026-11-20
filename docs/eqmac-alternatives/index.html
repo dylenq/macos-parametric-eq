@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>eqMac Alternatives for Mac: Equalizer Comparison</title>
+<meta name="description" content="A neutral comparison of Mac equalizers and eqMac alternatives: price, EQ type and macOS support, with sources. Includes free, open-source and paid options.">
+<link rel="canonical" href="https://dylenq.github.io/macos-parametric-eq/eqmac-alternatives/">
+<link rel="stylesheet" href="../style.css">
+<link rel="icon" type="image/png" href="../icon.png">
+<link rel="apple-touch-icon" href="../icon.png">
+<meta name="theme-color" content="#0b1a33">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="EQ for macOS">
+<meta property="og:title" content="eqMac Alternatives for Mac: Equalizer Comparison">
+<meta property="og:description" content="A neutral comparison of Mac equalizers and eqMac alternatives: price, EQ type and macOS support, with sources. Includes free, open-source and paid options.">
+<meta property="og:url" content="https://dylenq.github.io/macos-parametric-eq/eqmac-alternatives/">
+<meta property="og:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="EQ, a system-wide parametric equalizer for macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="eqMac Alternatives for Mac: Equalizer Comparison">
+<meta name="twitter:description" content="A neutral comparison of Mac equalizers and eqMac alternatives: price, EQ type and macOS support, with sources. Includes free, open-source and paid options.">
+<meta name="twitter:image" content="https://dylenq.github.io/macos-parametric-eq/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "EQ for macOS",
+      "item": "https://dylenq.github.io/macos-parametric-eq/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Alternatives",
+      "item": "https://dylenq.github.io/macos-parametric-eq/eqmac-alternatives/"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is a free alternative to eqMac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "EQ is a free, open-source system-wide parametric equalizer for macOS 14.2 and later. Other free options include SystemEQ for Mac and Radioform. Each has different requirements, so check the project pages."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is EQ the only Mac equalizer that works without a driver?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. EQ uses the macOS process tap and installs no driver. The command-line tool eqtune is also built on process taps. Some other apps may also work without a driver; their pages do not say."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does EQ have per-app volume or per-app EQ?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. EQ applies one equalizer curve to everything on the current output, with a separate curve remembered for each output."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does EQ run on Intel Macs?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The download is a universal build, but EQ is developed on Apple silicon and the Intel half has not been tested yet."
+      }
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<nav class="site-nav" aria-label="Main"><div class="wrap"><a class="brand" href="../">EQ for macOS</a><a href="../autoeq-on-mac/">AutoEq on Mac</a><a href="../headphone-equalizer-mac/">Headphones</a><a href="../equalizer-without-blackhole/">No driver</a><a href="../frequency-sweep-headphones/">Frequency sweep</a><a href="../eqmac-alternatives/" aria-current="page">Alternatives</a><a class="gh" href="https://github.com/dylenq/macos-parametric-eq">GitHub</a></div></nav>
+<div class="wrap">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="../">EQ for macOS</a> › Alternatives</nav>
+<article>
+<h1>eqMac alternatives and other Mac equalizers compared</h1>
+<p class="lede">Several apps can equalize system audio on a Mac. This page lists what each one says about itself, with links, so you can pick the one that fits. It was written by the author of EQ, so read it with that in mind.</p>
+<p class="updated">Updated 21 November 2026 · Applies to EQ 0.6.0</p>
+
+<div class="note"><b>How to read this page.</b> Everything below comes from each project's own page or repository as of 21 November 2026. Prices, versions and features change, so check the linked source before you decide. “See the page” or “see the docs” means we did not find the information there, not that the feature is absent.</div>
+
+<h2>The comparison</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>App</th><th>What it is</th><th>EQ</th><th>Price</th><th>macOS</th><th>Source</th></tr></thead>
+<tbody>
+<tr><td><b>EQ</b> (this site)</td><td>Free, open-source, system-wide equalizer in the menu bar. No virtual driver; it uses the macOS process tap.</td><td>Up to 16 parametric bands, five filter types, or 5/10/15/31 graphic sliders; AutoEq import; per-output curves</td><td>Free, GPL-3.0</td><td>14.2 or later</td><td><a href="https://github.com/dylenq/macos-parametric-eq">GitHub</a></td></tr>
+<tr><td><b>eqMac</b></td><td>System audio processing with an EQ and an app volume mixer.</td><td>Basic (bass, mids, treble) and Advanced (10 bands) free; Expert EQ with unlimited bands is Pro</td><td>Basic is free; Pro is listed at $3/month, $30/year or $40 lifetime</td><td>10.13 or later, Intel and Apple silicon</td><td><a href="https://eqmac.app">eqmac.app</a>, <a href="https://github.com/bitgapp/eqMac">repo</a></td></tr>
+<tr><td><b>SoundSource</b> (Rogue Amoeba)</td><td>Menu-bar audio control with per-app volume, routing, AirPlay and effects.</td><td>10-band EQ, per app or system-wide; Audio Unit support; headphone EQ</td><td>Free limited trial; full version needs a purchased key</td><td>Recent macOS versions; see the page</td><td><a href="https://rogueamoeba.com/soundsource/">rogueamoeba.com</a></td></tr>
+<tr><td><b>Sound Control 3</b> (Static Z)</td><td>Per-app volume, effects, routing and hotkeys.</td><td>10 or 31-band graphic EQ, with AutoEq headphone calibrations</td><td>Paid; the App Store version is a subscription</td><td>See the page</td><td><a href="https://staticz.com/soundcontrol/">staticz.com</a></td></tr>
+<tr><td><b>Boom 3D</b></td><td>3D surround, volume booster, per-app volume, radio player and headphone EQ.</td><td>31-band EQ with presets</td><td>Paid, with a trial</td><td>11 or later</td><td><a href="https://www.globaldelight.com/boom/">globaldelight.com</a></td></tr>
+<tr><td><b>SystemEQ for Mac</b></td><td>Free, open-source system-wide parametric EQ.</td><td>10 or 31 bands and an AutoEq database</td><td>Free, GPLv3</td><td>13 or later</td><td><a href="https://denzam.github.io/SystemEQ-for-Mac/">project page</a></td></tr>
+<tr><td><b>Radioform</b></td><td>Free, open-source system EQ with its own Core Audio output driver that you select as the output device.</td><td>10-band EQ</td><td>Free, GPL-3.0</td><td>See the repo</td><td><a href="https://github.com/Torteous44/radioform">GitHub</a></td></tr>
+<tr><td><b>eqtune</b></td><td>Command-line equalizer built on Core Audio process taps, like EQ. Its docs say no Developer ID certificate or notarization is required.</td><td>Parametric bands and a preamp, with a soft limiter</td><td>Free, MIT or Apache-2.0</td><td>See the docs</td><td><a href="https://docs.rs/eqtune">docs.rs</a></td></tr>
+</tbody>
+</table>
+</div>
+<p>The AutoEq wiki's page <a href="https://github.com/jaakkopasanen/AutoEq/wiki/Choosing-an-Equalizer-App">Choosing an Equalizer App</a> is another independent starting point, and it also mentions Apple's AUNBandEQ plugin, which needs a plugin host app and a virtual audio device to equalize system audio. Equalizer APO is a Windows tool and does not run on a Mac.</p>
+
+<h2>Drivers and how each approach works</h2>
+<p>Drivers are the part people most often ask about, and the sources are uneven. The eqMac repository describes a user-space system audio loopback device based on Apple's Null Audio Server plug-in example. Radioform's README describes its own Core Audio output driver. EQ uses the process tap that Apple added in macOS 14.2 and installs no driver. eqtune is also built on process taps. For SoundSource, Sound Control and Boom 3D, the pages we read do not say, so we make no claim. EQ is not the only process-tap option, and others here may also work without a driver. See <a href="../equalizer-without-blackhole/">how EQ works without BlackHole</a> for the details of the process-tap approach.</p>
+
+<h2>Where EQ fits, and where it does not</h2>
+<p><b>EQ is a good fit if</b> you want one free, open-source parametric EQ for everything the Mac plays, you are on macOS 14.2 or later, you use headphones and want to <a href="../autoeq-on-mac/">import an AutoEq correction</a>, or you want to find resonances with a <a href="../frequency-sweep-headphones/">frequency sweep</a>.</p>
+<p><b>Look elsewhere if</b> you need per-app volume or per-app EQ (EQ has one curve per output, with no per-app setup), you are on a macOS version older than 14.2, you want an app that is notarized by Apple (EQ is not yet), or you need features such as surround processing. EQ's Intel build is also untested, because it is developed on Apple silicon.</p>
+
+<h2>How to choose</h2>
+<ul>
+<li><b>Per-app control:</b> a mixer-style app such as SoundSource, Sound Control or eqMac fits better than a single system-wide curve.</li>
+<li><b>Older macOS:</b> eqMac lists support back to macOS 10.13, and Boom 3D to macOS 11.</li>
+<li><b>Free and open source:</b> eqMac Basic, SystemEQ, Radioform, eqtune and EQ are all free; check each licence and what it needs installed.</li>
+<li><b>Headphone corrections:</b> EQ, SystemEQ and Sound Control all list AutoEq support.</li>
+</ul>
+<p>AlternativeTo also keeps a <a href="https://alternativeto.net/software/eqmac/">crowd-sourced list of eqMac alternatives</a>, including FineTune and Sonexis, which we have not reviewed. All product names belong to their respective owners, and this site is not affiliated with any of them.</p>
+
+<h2>Frequently asked questions</h2>
+<details><summary>What is a free alternative to eqMac?</summary><p>EQ is a free, open-source system-wide parametric equalizer for macOS 14.2 and later. Other free options include SystemEQ for Mac and Radioform. Each has different requirements, so check the project pages.</p></details>
+<details><summary>Is EQ the only Mac equalizer that works without a driver?</summary><p>No. EQ uses the macOS process tap and installs no driver. The command-line tool eqtune is also built on process taps. Some other apps may also work without a driver; their pages do not say.</p></details>
+<details><summary>Does EQ have per-app volume or per-app EQ?</summary><p>No. EQ applies one equalizer curve to everything on the current output, with a separate curve remembered for each output.</p></details>
+<details><summary>Does EQ run on Intel Macs?</summary><p>The download is a universal build, but EQ is developed on Apple silicon and the Intel half has not been tested yet.</p></details>
+<div class="cta-box"><p>Free, open source, no account. macOS 14.2 or later.</p>
+<a class="cta" href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download EQ for macOS</a>
+<p class="meta">Version 0.6.0 · universal build, developed on Apple silicon · <a href="https://github.com/dylenq/macos-parametric-eq">Source on GitHub</a></p></div>
+<h2>More from EQ</h2><ul class="related"><li><a href="../autoeq-on-mac/">AutoEq on Mac</a></li><li><a href="../headphone-equalizer-mac/">Headphones</a></li><li><a href="../equalizer-without-blackhole/">No driver</a></li><li><a href="../frequency-sweep-headphones/">Frequency sweep</a></li></ul>
+</article>
+</div>
+<footer class="site-footer"><nav aria-label="Footer"><a href="../">Home</a><a href="../autoeq-on-mac/">AutoEq on Mac</a><a href="../headphone-equalizer-mac/">Headphones</a><a href="../equalizer-without-blackhole/">No driver</a><a href="../frequency-sweep-headphones/">Frequency sweep</a><a href="../eqmac-alternatives/">Alternatives</a><a href="https://github.com/dylenq/macos-parametric-eq/releases/latest">Download</a><a href="https://github.com/dylenq/macos-parametric-eq">Source</a><a href="https://github.com/dylenq/macos-parametric-eq/blob/main/LICENSE">GPL-3.0</a></nav><p>EQ is free software under the GPL-3.0 license. Built in Rust with Core Audio. Not affiliated with Apple or any product named on this site.</p></footer>
+</body>
+</html>
